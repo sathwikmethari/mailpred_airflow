@@ -25,7 +25,8 @@ def get_msg_data(server : imapclient.imapclient.IMAPClient, list_of_ids: List[in
     #UPDATE THIS(LIST OF IDS) AFTER TESTING
     for msgid, data in server.fetch(list_of_ids[-6], ['ENVELOPE', 'BODY[]']).items():
         # Extract envelope info
-        sender = data[b'ENVELOPE'].sender[0]
+        msg_data = data[b'ENVELOPE']
+        sender = msg_data.sender[0]
         name, email_addr = parse_email_address(sender)
         
         # Get raw email and parse body
@@ -44,4 +45,4 @@ def get_msg_data(server : imapclient.imapclient.IMAPClient, list_of_ids: List[in
             charset =msg.get_content_charset()
             body = msg.get_payload(decode=True).decode(charset)
         
-    return name, email_addr, body    
+    return msg_data, name, email_addr, body    
