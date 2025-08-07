@@ -1,11 +1,23 @@
-import email, datetime, imapclient
+import email, datetime, imapclient, re
+from imapclient import IMAPClient
 from typing import List
 from email import message_from_bytes
 from email.policy import default
 
-def get_ids(server : imapclient.imapclient.IMAPClient, from_date : datetime.date) -> List[int]:
+def get_ids(email : str, password : str, from_date : datetime.date) -> List[int]:
     
-   return server.search(criteria=[u'SINCE', from_date])
+    server = IMAPClient('imap.gmail.com', ssl=True, use_uid=True)
+    server.login(email, password)
+    server.select_folder('INBOX')
+    ids = server.search(criteria=[u'SINCE', from_date])
+    server.logout()
+    return ids
+
+    # ABOVE IS FASTER    
+    # with IMAPClient('imap.gmail.com', ssl=True, use_uid=True) as server:
+    #     server.login(email, password)
+    #     server.select_folder('INBOX')
+    #     return server.search(criteria=[u'SINCE', from_date])   
 
 
 def parse_email_address(addr: imapclient.response_types.Address):
@@ -45,4 +57,9 @@ def get_msg_data(server : imapclient.imapclient.IMAPClient, list_of_ids: List[in
             charset =msg.get_content_charset()
             body = msg.get_payload(decode=True).decode(charset)
         
-    return msg_data, name, email_addr, body    
+    return msg_data, name, email_addr, body
+
+
+
+def has_html(text):
+    return bool(re.search(r'<[a-z/][^>]*>', text, re.IGNORECASE))
