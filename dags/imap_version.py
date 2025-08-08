@@ -6,9 +6,9 @@ from airflow.sdk import dag, task, chain
 from typing import List
 
 @dag
-def email_data():
+def imap_dag():
     @task
-    def get_ids() -> List[int]:
+    def get_mail_ids() -> List[int]:
         """Importing libraries."""
         from imapclient import IMAPClient
         
@@ -24,7 +24,7 @@ def email_data():
         server.logout()
         return ids
     
-    _my_task_1 = get_ids()
+    _my_task_1 = get_mail_ids()
     
     @task
     def get_mail_data(list_of_ids : list[int]) -> None:
@@ -66,7 +66,7 @@ def email_data():
     )
     
 
-email_data()
+imap_dag()
 
 
 """

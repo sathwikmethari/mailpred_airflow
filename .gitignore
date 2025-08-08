@@ -36,9 +36,9 @@ logs/
 docker-compose.yaml
 custom-build.dockerfile
 plugins/
-src/credentials.json
-src/token.json
 data/
+include/secrets/
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
