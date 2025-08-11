@@ -15,13 +15,14 @@ def imap_dag():
         """Getting email and password."""
         email = os.environ.get("user")
         password = os.environ.get("pass")
-        from_date = datetime.date(2025, 8, 1)
+        from_date = datetime.date(2025, 3, 1)
         
         server = IMAPClient('imap.gmail.com', ssl=True, use_uid=True)
         server.login(email, password)
         server.select_folder('INBOX')
         ids = server.search(criteria=[u'SINCE', from_date])
         server.logout()
+        print(len(ids))
         return ids
     
     _my_task_1 = get_mail_ids()
@@ -35,12 +36,12 @@ def imap_dag():
         email = os.environ.get("user")
         password = os.environ.get("pass")
         
-        batch_size = 50          #Get better 
+        batch_size = 100          #Get better 
         id_chunks = [list_of_ids[i:i+batch_size] for i in range(0, len(list_of_ids), batch_size)]
         
         partial_function = partial(fetch_batch, email, password)
         
-        with ThreadPoolExecutor(max_workers=7) as executor:   #multiple workers for faster calling/extracting
+        with ThreadPoolExecutor(max_workers=10) as executor:   #multiple workers for faster calling/extracting
             results = list(executor.map(partial_function, id_chunks))
         
         out_dict=collections.defaultdict(list) #dict to store the relevant information
