@@ -77,15 +77,27 @@ def has_html(text):
 
 token_path = ""
 
-def get_ids_gmail(i: int, q: queue.Queue, token_path: str, after: str, before: str) -> None: 
-    #start_time = time.time()
+def get_ids_gmail(token_path: str, q: queue.Queue, dates: list[tuple]) -> None: 
+    start_time = time.time()
     SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     service = build('gmail', 'v1', credentials=creds)
-    results = service.users().messages().list(userId='me', q=f"after:{after} before:{before}").execute()
+    results = service.users().messages().list(userId='me', q=f"after:{dates[0]} before:{dates[1]}").execute()
     messages = results.get('messages', [])
     q.put(messages)
+    print(f"[Thread] >> Time taken: {time.time() - start_time:.4f} sec.")
     
     #time.sleep(0.2)
-    #print(f"[Thread-{i}] >> Time taken: {time.time() - start_time:.4f} sec.")
-    #print(len(messages))
+
+    
+def get_payload(token_path, payload_queue, message_ids):
+    start_time = time.time()
+    SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+    service = build('gmail', 'v1', credentials=creds)
+    for msg in message_ids:
+        msg_data = service.users().messages().get(userId="me", id=msg["id"], format="full").execute()
+
+        payload = msg_data.get("payload", {})
+        payload_queue.put((msg_data["id"],payload))
+    print(f"[Thread] >> Time taken: {time.time() - start_time:.4f} sec.")
