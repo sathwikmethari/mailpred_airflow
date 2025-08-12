@@ -1,8 +1,11 @@
-import email, datetime, imapclient, re
+import email, datetime, imapclient, re, queue, time
 from imapclient import IMAPClient
 from typing import List
 from email import message_from_bytes
 from email.policy import default
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
 
 def fetch_batch(email : str, password : str, ids : list[int]):
     with IMAPClient('imap.gmail.com', ssl=True) as server:
@@ -12,7 +15,7 @@ def fetch_batch(email : str, password : str, ids : list[int]):
         return msg_data
         
 
-def get_ids(email : str, password : str, from_date : datetime.date) -> List[int]:
+def get_ids_imap(email : str, password : str, from_date : datetime.date) -> List[int]:
     
     server = IMAPClient('imap.gmail.com', ssl=True, use_uid=True)
     server.login(email, password)
@@ -71,3 +74,18 @@ def get_msg_data(server : imapclient.imapclient.IMAPClient, list_of_ids: List[in
 
 def has_html(text):
     return bool(re.search(r'<[a-z/][^>]*>', text, re.IGNORECASE))
+
+token_path = ""
+
+def get_ids_gmail(i: int, q: queue.Queue, token_path: str, after: str, before: str) -> None: 
+    #start_time = time.time()
+    SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+    service = build('gmail', 'v1', credentials=creds)
+    results = service.users().messages().list(userId='me', q=f"after:{after} before:{before}").execute()
+    messages = results.get('messages', [])
+    q.put(messages)
+    
+    #time.sleep(0.2)
+    #print(f"[Thread-{i}] >> Time taken: {time.time() - start_time:.4f} sec.")
+    #print(len(messages))
