@@ -1,4 +1,4 @@
-import email, datetime, imapclient, re
+import email, datetime, imapclient, re, base64
 from imapclient import IMAPClient
 from typing import List
 from email import message_from_bytes
@@ -63,3 +63,41 @@ def get_msg_data(server : imapclient.imapclient.IMAPClient, list_of_ids: List[in
 
 def has_html(text):
     return bool(re.search(r'<[a-z/][^>]*>', text, re.IGNORECASE))
+
+
+def extract_headers(payload):
+    """Extract Subject and From headers."""
+    headers = payload.get("headers", [])
+    subject = sender = None
+    for h in headers:
+        name = h.get("name", "").lower()
+        if name == "subject":
+            subject = h.get("value", "")
+        elif name == "from":
+            sender = h.get("value", "")
+    return subject, sender
+
+
+def decode_body(payload, prefer_plain=True):
+    """
+    Decode base64 content.
+    If prefer_plain=True, returns text/plain first, then text/html.
+    """
+    if "mimeType" in payload and payload["body"].get("data"):
+        mime_type = payload["mimeType"]
+        body = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="ignore")
+        if not prefer_plain or mime_type == "text/plain":
+            return body
+
+    if "parts" in payload:
+        plain_text = ""
+        html_text = ""
+        for part in payload["parts"]:
+            text = decode_body(part, prefer_plain)
+            if part.get("mimeType") == "text/plain" and not plain_text:
+                plain_text = text
+            elif part.get("mimeType") == "text/html" and not html_text:
+                html_text = text
+        return plain_text if plain_text else html_text
+
+    return ""

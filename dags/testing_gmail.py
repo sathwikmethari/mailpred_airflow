@@ -4,7 +4,7 @@ import base64
 import email
 
 @dag
-def gmail_dag():
+def testing_gmail_dag():
     @task
     def get_mail_ids() -> list[dict]:
         """Importing Libraries."""
@@ -45,4 +45,4 @@ def gmail_dag():
     _my_task_2,
     )
     
-gmail_dag()
+testing_gmail_dag()
