@@ -1,11 +1,9 @@
 import email, datetime, imapclient, re, queue, time
 from imapclient import IMAPClient
 from typing import List
-from email import message_from_bytes
 from email.policy import default
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build 
 
 def fetch_batch(email : str, password : str, ids : list[int]):
     with IMAPClient('imap.gmail.com', ssl=True) as server:
@@ -77,7 +75,7 @@ def has_html(text):
 
 token_path = ""
 
-def get_ids_gmail(token_path: str, q: queue.Queue, dates: list[tuple]) -> None: 
+def get_ids_gmail(token_path: str, q: queue.Queue, dates: list[tuple]) -> None:
     start_time = time.time()
     SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
