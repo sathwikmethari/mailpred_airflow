@@ -30,7 +30,7 @@ def gmail_dag():
         ids_queue = Queue()   
         partial_function_1 = partial(get_ids_gmail, token_path, ids_queue)
 
-        with ThreadPoolExecutor(max_workers=7) as executor:   #multiple workers for faster calling/extracting
+        with ThreadPoolExecutor(max_workers=10) as executor:   #multiple workers for faster calling/extracting
             executor.map(partial_function_1, dates)
 
         return [ids_queue.get() for _ in range(ids_queue.qsize())]
@@ -48,7 +48,7 @@ def gmail_dag():
         payload_queue = Queue()
         partial_function_2 = partial(get_payload, token_path, payload_queue)
 
-        with ThreadPoolExecutor(max_workers=7) as executor:   #multiple workers for faster calling/extracting
+        with ThreadPoolExecutor(max_workers=10) as executor:   #multiple workers for faster calling/extracting
             executor.map(partial_function_2, messages_ids)
                 
         return [payload_queue.get() for _ in range(payload_queue.qsize())]
