@@ -1,5 +1,6 @@
-import email, datetime, imapclient, re, queue, time, asyncio
+import email, datetime, imapclient, re, time, asyncio
 from imapclient import IMAPClient
+from queue import Queue
 from typing import List
 from email.policy import default
 import googleapiclient
@@ -77,7 +78,7 @@ def has_html(text):
 
 token_path = ""
 
-def get_ids_gmail(token_path: str, q: queue.Queue, dates: list[tuple]) -> None:
+def get_ids_gmail(token_path: str, q: Queue, dates: list[tuple]) -> None:
     start_time = time.time()
     SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
@@ -88,9 +89,8 @@ def get_ids_gmail(token_path: str, q: queue.Queue, dates: list[tuple]) -> None:
     print(f"[Thread] >> Time taken: {time.time() - start_time:.4f} sec.")
     
     #time.sleep(0.2)
-
     
-def get_payload(token_path: str, payload_queue: queue.Queue, message_ids: list[dict]):
+def get_payload(token_path: str, payload_queue: Queue, message_ids: list[dict]):
     start_time = time.time()
     SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
@@ -101,9 +101,14 @@ def get_payload(token_path: str, payload_queue: queue.Queue, message_ids: list[d
         payload = msg_data.get("payload", {})
         payload_queue.put((msg_data["id"],payload))
     print(f"[Thread] >> Time taken: {time.time() - start_time:.4f} sec.")
-    
+
+
+
+"""
+Helper functions for ASYNC DAG
+"""    
 #For creating multiple tasks with different arguments
-async def worker(function, in_queue, out_queue):
+async def worker(function, in_queue: Queue, out_queue: Queue) -> None :
     while True:
         num = await in_queue.get()
         if num is None:
@@ -124,17 +129,17 @@ def generate_services(num: int, token_path: str) -> list[googleapiclient.discove
 def driver_for_ids(service: googleapiclient.discovery.Resource, dates: list[tuple]):
     return service.users().messages().list(userId='me', q=f"after:{dates[0]} before:{dates[1]}").execute()
 
-async def async_get_ids(id: int, service, dates: list[tuple]) -> dict:
+#gets ids for days
+async def async_get_ids(id: int, service: googleapiclient.discovery.Resource, dates: list[tuple]) -> list[str]:
     start_time = time.time()
-    results = await asyncio.to_thread(driver_for_ids, service, dates)
-    messages = results.get('messages', [])
+    results = await asyncio.to_thread(driver_for_ids, service, dates) #for type list of dictionaries(having id, thread id)
     print(f"[CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
-    return messages
+    return [dict_["id"]  for dict_ in results.get('messages', [])]
 
-async def async_get_ids_main(dates: list[tuple], token_path: str) -> list[dict]:
+async def async_get_ids_main(dates: list[tuple], token_path: str, out_list=None) -> list[str]:
     num = 20
     services = generate_services(num, token_path)
-    partial_functions = [partial(async_get_ids, i, services[i]) for i in range(1, num)]
+    partial_functions = [partial(async_get_ids, i+1, services[i]) for i in range(num)]
     
     in_queue = asyncio.Queue()
     out_queue = asyncio.Queue()
@@ -150,7 +155,47 @@ async def async_get_ids_main(dates: list[tuple], token_path: str) -> list[dict]:
     
     await asyncio.gather(*tasks)
     
-    return [await out_queue.get() for _ in range(out_queue.qsize())]
+    if out_list is None:
+        out_list =[]
+        
+    for _ in range(out_queue.qsize()):
+        out_list.extend(await out_queue.get())
+        
+    return out_list
 
-def wrapper_for_ids(dates: list[tuple], token_path: str):
+#wrapper for airflow
+def wrapper_for_ids(dates: list[tuple], token_path: str) -> list[list[dict]]:
     return asyncio.run(async_get_ids_main(dates, token_path))
+
+def driver_for_payload(service: googleapiclient.discovery.Resource, id: str):
+    return service.users().messages().get(userId="me", id=id, format="full").execute()
+
+async def async_get_payload(id:int, service: googleapiclient.discovery.Resource, message_id:str):
+    start_time = time.time()
+    results = await asyncio.to_thread(driver_for_payload, service, id)
+    print(f"[CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
+    return (id, results.get("payload", {}))
+
+async def async_get_payload_main(id_list :list[str], token_path: str, out_list = None):
+    num = 20
+    services = generate_services(num, token_path)
+    partial_functions = [partial(async_get_payload, i+1, services[i]) for i in range(num)]
+    in_queue = asyncio.Queue()
+    out_queue = asyncio.Queue()
+    if out_list is None: out_list =[]
+    
+    for date in id_list:
+        await in_queue.put(date)
+
+    # Add one stop signal per worker
+    for _ in range(num):
+        await in_queue.put(None)
+        
+    tasks = [asyncio.create_task(worker(function, in_queue, out_queue)) for function in partial_functions]
+    
+    await asyncio.gather(*tasks)
+            
+    while not out_queue.empty():
+        out_list.extend(await out_queue.get())
+        
+    return out_list

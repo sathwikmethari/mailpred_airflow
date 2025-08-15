@@ -18,7 +18,7 @@ def gmail_dag_async():
     _my_task_1 = get_dates()
     
     @task
-    def get_ids(dates: list[tuple]) -> list[dict]:
+    def get_ids(dates: list[tuple]) -> list[list[dict]]:
         """Importing libraries/functions."""
         from utils import wrapper_for_ids
         
@@ -29,8 +29,11 @@ def gmail_dag_async():
        
     _my_task_2 = get_ids(_my_task_1)
     
-        
-        
+    @task
+    def get_payload() -> list:
+        pass
+    
+                
     chain(
     _my_task_1,
     _my_task_2)
