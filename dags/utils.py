@@ -1,57 +1,75 @@
 import email, imapclient, re, time, asyncio, collections, base64 
 import googleapiclient, sys
-from typing import List
+from typing import List, Tuple
 from queue import Queue
 from functools import partial 
 from datetime import datetime
+from bs4 import BeautifulSoup
 from email.policy import default
 from imapclient import IMAPClient
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
+
 """ Helper functions for parsing"""
 
 """ Extract Subject and From headers. """
-def extract_headers(payload):
+def extract_headers(payload) -> Tuple[str, str]:
     subject = sender = None
     headers = payload.get("headers", [])
-    for h in headers:
-        name = h.get("name", "")
+    target = {"Subject", "From"}
+    out = set()
+    for header in headers:
+        name = header.get("name", "")
         if name == "Subject":
-            subject = h.get("value", "")
+            out.add(name)
+            subject = header.get("value", "")
         elif name == "From":
-            sender = h.get("value", "")
+            out.add(name)
+            sender = header.get("value", "")
             if sender:
-                sender = sender.split(" ")[0]
+                sender, _ = email.utils.parseaddr(sender)
+        if out == target: #Early stopping
+            break
         # elif name == "Date":
         #     date_recieved = h.get("value", "")
     return subject, sender#, date_recieved
 
-""" Decode base64 content.
-    If prefer_plain=True, returns text/plain first, then text/html. """
-def decode_body(payload, prefer_plain=True):
+
+""" mimeType may be:
+>>> "text/plain" - plain text only
+>>> "text/html" - HTML only
+>>> "multipart/alternative" - contains both text/plain and text/html as parts
+>>> "multipart/mixed" or "multipart/related" - may include attachments
+The actual message body is in body.data, Base64url encoded. """
+
+""" Decode base64 content. """
+def decode_body(payload) -> str:
     if "mimeType" in payload and payload["body"].get("data"):
         mime_type = payload["mimeType"]
-        body = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="ignore")
-        if not prefer_plain or mime_type == "text/plain":
-            return body
+        data = payload.get("body", {}).get("data", "")
+        body = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+        if mime_type == "text/plain":
+            return preprocess_email_body(body)
+        elif mime_type == "text/html":
+            soup = BeautifulSoup(body, "html.parser")
+            body_text = soup.get_text()
+            return preprocess_email_body(body_text)
 
     if "parts" in payload:
-        plain_text = ""
-        html_text = ""
+        html_text = None
+        plain_text = None
+
         for part in payload["parts"]:
-            text = decode_body(part, prefer_plain)
-            if part.get("mimeType") == "text/plain" and not plain_text:
-                plain_text = text
-            elif part.get("mimeType") == "text/html" and not html_text:
-                html_text = text
-        return plain_text if plain_text else html_text
+            decoded = decode_body(part)
+            if part.get("mimeType") == "text/html" and decoded:
+                html_text = decoded   # prefer HTML
+            elif part.get("mimeType") == "text/plain" and decoded:
+                plain_text = decoded
 
-    return ""
+        return html_text or plain_text  # return HTML if available, else plain
 
-def size_in_mb(x):
-    size_in_bytes=sys.getsizeof(x)
-    print(f"Size in MB: {size_in_bytes / (1024 * 1024)}")
+    return None
 
 def preprocess_email_body(s: str) -> str: 
     #removes urls
@@ -59,7 +77,12 @@ def preprocess_email_body(s: str) -> str:
     # removes non alphanumerics
     s = re.sub(r"[^a-zA-Z0-9£$€¥₹\s]", "", s)
     #lowers alpabet, removes unnecessary tab spaces/spaces
-    return " ".join(s.lower().strip().split())     
+    return " ".join(s.lower().strip().split())
+     
+def size_in_mb(x):
+    size_in_bytes=sys.getsizeof(x)
+    print(f"Size in MB: {size_in_bytes / (1024 * 1024)}")
+
 
 """++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"""
 
