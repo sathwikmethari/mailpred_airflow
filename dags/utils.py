@@ -1,4 +1,5 @@
-import email, imapclient, re, time, asyncio, collections, base64, googleapiclient
+import email, imapclient, re, time, asyncio, collections, base64 
+import googleapiclient, sys
 from typing import List
 from queue import Queue
 from functools import partial 
@@ -12,15 +13,19 @@ from google.oauth2.credentials import Credentials
 
 """ Extract Subject and From headers. """
 def extract_headers(payload):
-    headers = payload.get("headers", [])
     subject = sender = None
+    headers = payload.get("headers", [])
     for h in headers:
-        name = h.get("name", "").lower()
-        if name == "subject":
+        name = h.get("name", "")
+        if name == "Subject":
             subject = h.get("value", "")
-        elif name == "from":
+        elif name == "From":
             sender = h.get("value", "")
-    return subject, sender
+            if sender:
+                sender = sender.split(" ")[0]
+        # elif name == "Date":
+        #     date_recieved = h.get("value", "")
+    return subject, sender#, date_recieved
 
 """ Decode base64 content.
     If prefer_plain=True, returns text/plain first, then text/html. """
@@ -48,8 +53,13 @@ def size_in_mb(x):
     size_in_bytes=sys.getsizeof(x)
     print(f"Size in MB: {size_in_bytes / (1024 * 1024)}")
 
-def has_html(text):
-    return bool(re.search(r'<[a-z/][^>]*>', text, re.IGNORECASE))
+def preprocess_email_body(s: str) -> str: 
+    #removes urls
+    s = re.sub(r"https?://\S+|http?://\S+|www\.\S+", "", s)
+    # removes non alphanumerics
+    s = re.sub(r"[^a-zA-Z0-9£$€¥₹\s]", "", s)
+    #lowers alpabet, removes unnecessary tab spaces/spaces
+    return " ".join(s.lower().strip().split())     
 
 """++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"""
 
