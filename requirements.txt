@@ -5,3 +5,7 @@ google-auth-oauthlib
 pandas
 msgspec
 beautifulsoup4
+lxml
+# PyTorch (GPU build with CUDA 12.9) and Huggingface Transformers
+transformers==4.49.0
+torch==2.8.0+cu129 torchvision==0.23.0+cu129 --index-url https://download.pytorch.org/whl/cu129

@@ -1,5 +1,5 @@
 import email, imapclient, re, time, asyncio, collections, base64 
-import googleapiclient, sys
+import googleapiclient, sys, msgspec, gzip
 from typing import List, Tuple
 from queue import Queue
 from functools import partial 
@@ -11,7 +11,12 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 
-""" Helper functions for parsing"""
+""" Helper functions for zipping/parsing"""
+def decode_zip(path: str):
+    #Decompress and load
+    with gzip.open(path, 'rb') as f:
+        decompressed_bytes = f.read()
+    return msgspec.msgpack.decode(decompressed_bytes)
 
 """ Extract Subject and From headers. """
 def extract_headers(payload) -> Tuple[str, str]:
@@ -24,11 +29,13 @@ def extract_headers(payload) -> Tuple[str, str]:
         if name == "Subject":
             out.add(name)
             subject = header.get("value", "")
+            subject = preprocess_email_body(subject)
         elif name == "From":
             out.add(name)
             sender = header.get("value", "")
             if sender:
                 sender, _ = email.utils.parseaddr(sender)
+                sender = preprocess_email_body(sender)
         if out == target: #Early stopping
             break
         # elif name == "Date":
@@ -52,7 +59,10 @@ def decode_body(payload) -> str:
         if mime_type == "text/plain":
             return preprocess_email_body(body)
         elif mime_type == "text/html":
-            soup = BeautifulSoup(body, "html.parser")
+            #soup = BeautifulSoup(body, "html.parser")
+            soup = BeautifulSoup(body, "lxml")
+            for tag in soup(["script", "style", "header", "footer", "nav", "aside"]):
+                tag.decompose()
             body_text = soup.get_text()
             return preprocess_email_body(body_text)
 
