@@ -19,29 +19,16 @@ def decode_zip(path: str):
     return msgspec.msgpack.decode(decompressed_bytes)
 
 """ Extract Subject and From headers. """
-def extract_headers(payload) -> Tuple[str, str]:
-    subject = sender = None
+def extract_headers(payload) -> str:
+    subject = None
     headers = payload.get("headers", [])
-    target = {"Subject", "From"}
     out = set()
     for header in headers:
         name = header.get("name", "")
         if name == "Subject":
             out.add(name)
             subject = header.get("value", "")
-            subject = preprocess_email_body(subject)
-        elif name == "From":
-            out.add(name)
-            sender = header.get("value", "")
-            if sender:
-                sender, _ = email.utils.parseaddr(sender)
-                sender = preprocess_email_body(sender)
-        if out == target: #Early stopping
-            break
-        # elif name == "Date":
-        #     date_recieved = h.get("value", "")
-    return subject, sender#, date_recieved
-
+            return preprocess_email_body(subject)
 
 """ mimeType may be:
 >>> "text/plain" - plain text only
