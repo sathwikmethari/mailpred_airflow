@@ -22,7 +22,7 @@ def get_gmail_data_async():
         from utils import wrapper_for_ids
         token_path = os.environ.get("token_path_airflow")
        
-        x = wrapper_for_ids(dates, token_path)
+        x = wrapper_for_ids(dates, token_path, 10)
         return x
        
     _my_task_2 = get_ids(_my_task_1)
@@ -33,7 +33,7 @@ def get_gmail_data_async():
         from utils import wrapper_for_payload        
         token_path = os.environ.get("token_path_airflow")
                
-        out_dict = wrapper_for_payload(ids_list, token_path)
+        out_dict = wrapper_for_payload(ids_list, token_path, 15)
 
         print("Starting encoding")
         # Compressing
