@@ -6,7 +6,7 @@ from airflow.sdk import dag, task, chain
 from typing import List
 
 @dag
-def imap_dag():
+def get_imap_data():
     @task
     def get_mail_ids() -> List[int]:
         """Importing libraries."""
@@ -67,7 +67,7 @@ def imap_dag():
     )
     
 
-imap_dag()
+get_imap_data()
 
 
 """

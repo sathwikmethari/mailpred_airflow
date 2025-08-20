@@ -3,7 +3,7 @@ from airflow.sdk import dag, task, chain
 from datetime import  datetime, timedelta
 
 @dag
-def gmail_dag_async():
+def get_gmail_data_async():
     @task
     def get_dates() -> list[tuple]:
         today = datetime.now().date()
@@ -60,4 +60,4 @@ def gmail_dag_async():
     _my_task_3,
     _my_task_4)
     
-gmail_dag_async()
+get_gmail_data_async()

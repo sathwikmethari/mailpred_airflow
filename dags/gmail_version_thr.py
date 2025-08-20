@@ -7,7 +7,7 @@ from queue import Queue
 
 
 @dag
-def gmail_dag():
+def get_gmail_data_thr():
     @task
     def get_dates() -> list[tuple]:
         today = datetime.now().date()
@@ -84,4 +84,4 @@ def gmail_dag():
     _my_task_4
     )
     
-gmail_dag()
+get_gmail_data_thr()

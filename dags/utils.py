@@ -217,9 +217,8 @@ async def async_get_ids(service: googleapiclient.discovery.Resource, date: tuple
 
 """ Main function to create multiple coroutines,
     Returns a list with ids. """
-async def async_get_ids_main(dates: list[tuple], token_path: str, id_list=None) -> list[str]:
-    num = 10
-    services = generate_services(num, token_path)
+async def async_get_ids_main(dates: list[tuple], token_path: str, coro_num: int, id_list: list = None) -> list[str]:
+    services = generate_services(coro_num, token_path)
     partial_functions = [partial(async_get_ids, service) for service in services]
     
     in_queue = asyncio.Queue()
@@ -231,7 +230,7 @@ async def async_get_ids_main(dates: list[tuple], token_path: str, id_list=None) 
 
     # Add one stop signal per worker. 
     # i,e when the coroutine/worker gets None it breaks the loop of accepting/getting dates.
-    for _ in range(num):
+    for _ in range(coro_num):
         await in_queue.put(None)
         
     tasks = [asyncio.create_task(worker(id+1, function, in_queue, out_queue)) for id, function in enumerate(partial_functions)]    
@@ -243,8 +242,8 @@ async def async_get_ids_main(dates: list[tuple], token_path: str, id_list=None) 
     return id_list
 
 # Wrapper for main function for airflow.
-def wrapper_for_ids(dates: list[tuple], token_path: str) -> list[str]:
-    return asyncio.run(async_get_ids_main(dates, token_path))
+def wrapper_for_ids(dates: list[tuple], token_path: str, coro_num: int) -> list[str]:
+    return asyncio.run(async_get_ids_main(dates=dates, token_path=token_path, coro_num=coro_num))
 
 """ Helper functions for getting payload. """
 
@@ -259,9 +258,8 @@ async def async_get_payload(service: googleapiclient.discovery.Resource, message
 
 """ Main function to create multiple coroutines,
     Returns a dictionary with ids, payload. """
-async def async_get_payload_main(id_list: list[str], token_path: str) -> dict:
-    num = 10
-    services = generate_services(num, token_path)
+async def async_get_payload_main(id_list: list[str], token_path: str, coro_num: int) -> dict:
+    services = generate_services(coro_num, token_path)
     partial_functions = [partial(async_get_payload, service) for service in services]
     in_queue = asyncio.Queue()
     out_queue = asyncio.Queue()
@@ -272,7 +270,7 @@ async def async_get_payload_main(id_list: list[str], token_path: str) -> dict:
         
     # Add one stop signal per worker. 
     # i,e when the coroutine/worker gets None it breaks the loop of accepting/getting ids.
-    for _ in range(num):
+    for _ in range(coro_num):
         await in_queue.put(None)
         
     tasks = [asyncio.create_task(worker(id+1, function, in_queue, out_queue)) for id, function in enumerate(partial_functions)]
@@ -286,5 +284,5 @@ async def async_get_payload_main(id_list: list[str], token_path: str) -> dict:
     return out_dict
 
 # Wrapper for main function for airflow
-def wrapper_for_payload(id_list: list[str], token_path: str) -> dict:
-    return asyncio.run(async_get_payload_main(id_list, token_path))
+def wrapper_for_payload(id_list: list[str], token_path: str, coro_num: int) -> dict:
+    return asyncio.run(async_get_payload_main(id_list, token_path, coro_num))
