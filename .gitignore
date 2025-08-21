@@ -33,12 +33,16 @@ MANIFEST
 #Folder
 config/
 logs/
-docker-compose.yaml
-custom-build.dockerfile
 plugins/
 data/
 include/secrets/
 .vscode/
+
+#Files
+docker-compose.yaml
+custom-build.dockerfile
+send_dummies.py
+dummies.py
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
