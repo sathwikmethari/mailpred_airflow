@@ -1,16 +1,16 @@
 import email, imapclient, re, time, asyncio, collections, base64 
 import googleapiclient, sys, msgspec, gzip, torch
 import numpy as np
-from typing import List, Tuple
+from typing import List
 from queue import Queue
 from functools import partial 
 from datetime import datetime
 from bs4 import BeautifulSoup
 from email.policy import default
 from imapclient import IMAPClient
+from transformers import AutoModel
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
-from transformers import AutoModel, AutoTokenizer
 
 
 """ Helper functions for zipping/parsing"""
@@ -24,13 +24,12 @@ def decode_zip(path: str):
 def extract_headers(payload) -> str:
     subject = None
     headers = payload.get("headers", [])
-    out = set()
     for header in headers:
         name = header.get("name", "")
         if name == "Subject":
-            out.add(name)
             subject = header.get("value", "")
             return preprocess_email_body(subject)
+    return subject
 
 """ mimeType may be:
 >>> "text/plain" - plain text only
