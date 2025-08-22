@@ -1,6 +1,6 @@
 import os, gzip, msgspec
 from airflow.sdk import dag, task, chain
-from datetime import  datetime, timedelta
+from datetime import  datetime
 
 @dag
 def get_training_data():    
@@ -19,7 +19,7 @@ def get_training_data():
         return [query, [dict_["id"]  for dict_ in results.get('messages', [])]]
     
     #Dynamic task mapping
-    _my_task_1 = get_ids.expand(query = ["starred", "unimportant"])
+    _my_task_1 = get_ids.expand(query = ["imp", "unimp"])
     
     @task
     def get_payload(input: list[str, list]):
