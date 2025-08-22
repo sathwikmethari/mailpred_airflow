@@ -1,5 +1,6 @@
 import email, imapclient, re, time, asyncio, collections, base64 
-import googleapiclient, sys, msgspec, gzip
+import googleapiclient, sys, msgspec, gzip, torch
+import numpy as np
 from typing import List, Tuple
 from queue import Queue
 from functools import partial 
@@ -9,6 +10,7 @@ from email.policy import default
 from imapclient import IMAPClient
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+from transformers import AutoModel, AutoTokenizer
 
 
 """ Helper functions for zipping/parsing"""
@@ -273,3 +275,24 @@ async def async_get_payload_main(id_list: list[str], token_path: str, coro_num: 
 # Wrapper for main function for airflow
 def wrapper_for_payload(id_list: list[str], token_path: str, coro_num: int) -> dict:
     return asyncio.run(async_get_payload_main(id_list, token_path, coro_num))
+
+"""++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"""
+
+""" Helper functions for Training Model """
+
+def get_embeddings_from_token(model_name: str, tokens: np.ndarray) -> np.ndarray:
+    model = AutoModel.from_pretrained(model_name)
+
+    embeddings = []
+
+    with torch.no_grad():
+        for token in tokens:
+            outputs = model(**token)
+            # Use [CLS] token embedding (first token)
+            cls_embedding = outputs.last_hidden_state[:, 0, :].squeeze(0).numpy()
+            embeddings.append(cls_embedding)
+
+    return np.array(embeddings)
+
+
+
