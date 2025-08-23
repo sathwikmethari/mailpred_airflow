@@ -3,7 +3,7 @@ from airflow.sdk import dag, task, chain
 from datetime import  datetime, timedelta
 
 @dag
-def get_gmail_data_async():
+def get_gmail_data_async() -> None:
     @task
     def get_dates() -> list[tuple]:
         today = datetime.now().date()
@@ -38,7 +38,7 @@ def get_gmail_data_async():
         print("Starting encoding")
         # Compressing
         bytes = msgspec.msgpack.encode(out_dict)        
-        zip_path = f"/opt/airflow/data/{datetime.now().strftime('%d-%m-%Y-%H-%M')}.json.gz"
+        zip_path = f"/opt/airflow/data/{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.json.gz"
         with gzip.open(zip_path, 'wb') as f:
             f.write(bytes)
             
@@ -47,11 +47,23 @@ def get_gmail_data_async():
     _my_task_3 = get_payload(_my_task_2)           
     
     @task
-    def parse_payload(zip_path: str) -> None:
+    def decode_payload(zip_path: str) -> str:
         """Importing libraries/functions."""
-        pass       
+        import pandas as pd
+        from utils import decode_zip, extract_headers, decode_body
+
+        unzipped_data = decode_zip(zip_path)
+        df = pd.DataFrame(unzipped_data)
+        df["Subject"] = df["Payload"].apply(extract_headers)
+        df["Body"] = df["Payload"].apply(decode_body)
+        df = df.drop(["Id", "Payload"], axis=1)
+
+        parquet_path = f"/opt/airflow/data/{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.parquet.gzip"
+
+        df.to_parquet(parquet_path)
+        return parquet_path       
                                
-    _my_task_4 = parse_payload(_my_task_3)
+    _my_task_4 = decode_payload(_my_task_3)
     
     
     chain(
