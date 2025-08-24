@@ -1,15 +1,14 @@
-import os, datetime, collections
+import datetime, collections
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor
-import pandas as pd
 from airflow.sdk import dag, task, chain
-from typing import List
+from concurrent.futures import ThreadPoolExecutor
 
 @dag
 def get_imap_data():
     @task
-    def get_mail_ids() -> List[int]:
+    def get_mail_ids() -> list[int]:
         """Importing libraries."""
+        import os
         from imapclient import IMAPClient
         
         """Getting email and password."""
@@ -30,7 +29,9 @@ def get_imap_data():
     @task
     def get_mail_data(list_of_ids : list[int]) -> None:
         """Importing libraries."""
-        from utils import fetch_batch       
+        import os
+        import pandas as pd
+        from utils.utils import fetch_batch       
         
         """Getting email and password."""
         email = os.environ.get("user")

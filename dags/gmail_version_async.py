@@ -1,4 +1,4 @@
-import os, gzip, msgspec
+from tempfile import NamedTemporaryFile
 from airflow.sdk import dag, task, chain
 from datetime import  datetime, timedelta
 
@@ -17,7 +17,8 @@ def get_gmail_data_async() -> None:
     @task
     def get_ids(dates: list[tuple]) -> list[str]:
         """Importing libraries/functions/paths."""
-        from utils import wrapper_for_ids
+        import os
+        from utils.gm_main_utils import wrapper_for_ids
         token_path = os.environ.get("token_path_airflow")
        
         x = wrapper_for_ids(dates, token_path, 10)
@@ -26,7 +27,8 @@ def get_gmail_data_async() -> None:
     @task(multiple_outputs=True)
     def get_payload(ids_list: list[str]) -> str:
         """Importing libraries/functions/paths."""
-        from utils import wrapper_for_payload        
+        import os, gzip, msgspec
+        from utils.gm_main_utils import wrapper_for_payload        
         token_path = os.environ.get("token_path_airflow")
                
         out_dict = wrapper_for_payload(ids_list, token_path, 20)
@@ -44,29 +46,34 @@ def get_gmail_data_async() -> None:
     def decode_payload(zip_path: str) -> str:
         """Importing libraries/functions."""
         import pandas as pd
-        from utils import decode_zip, extract_headers, decode_body
+        from utils.gm_data_utils import decode_zip, extract_headers, decode_body
 
         unzipped_data = decode_zip(zip_path)
         df = pd.DataFrame(unzipped_data)[["Payload"]] #only takes payload key data from dict
         df["Subject"] = df["Payload"].apply(extract_headers)
         df["Body"] = df["Payload"].apply(decode_body)
         df = df.drop(["Payload"], axis=1)
-
-        parquet_path = f"/opt/airflow/data/{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.parquet.gzip"
-
-        df.to_parquet(parquet_path)
-        return parquet_path  
+        #parquet_path = f"/opt/airflow/data/{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.parquet.gzip"
+        
+        with NamedTemporaryFile(delete=False, suffix=".parquet.gzip") as f:
+            df.to_parquet(f)
+            return f.name        
                                   
     @task
-    def generate_embeds(parquet_path: str):
+    def get_embeds(parquet_path: str):
         """Importing libraries/functions."""
-        import pandas as pd
+        import os
         import numpy as np
-        from tempfile import NamedTemporaryFile
-        from utils import get_embeddings
-        model_name = "distilbert-base-uncased"
+        import pandas as pd
+        from utils.gm_main_utils import get_embeddings
+        try:
+            df = pd.read_parquet(parquet_path)
+            os.remove(parquet_path)
+            print(f"Temporary file deleted.")
+        except Exception as e:
+            print(f"Error deleting file--{e}")
 
-        df = pd.read_parquet(parquet_path)
+        model_name = "distilbert-base-uncased"
         embd = get_embeddings(df, model_name)
 
         with NamedTemporaryFile(delete=False, suffix=".npy") as f:
@@ -75,9 +82,15 @@ def get_gmail_data_async() -> None:
 
     @task
     def test(x,y):
+        import os
         import numpy as np
-
-        embd = np.load(x)
+        try:
+            embd = np.load(x)
+            os.remove(x)
+            print(f"Temporary file deleted.")
+        except Exception as e:
+            print(f"Error deleting file--{e}")
+        
         print(f"EMBDS---{embd[0][0]}")
         print(f"IDS-----{y[0]}")
 
@@ -85,7 +98,7 @@ def get_gmail_data_async() -> None:
     _my_task_2 = get_ids(_my_task_1)
     _my_task_3 = get_payload(_my_task_2)           
     _my_task_4 = decode_payload(zip_path = _my_task_3["path"])
-    _my_task_5 = generate_embeds(_my_task_4)
+    _my_task_5 = get_embeds(_my_task_4)
     _my_task_6 = test(x = _my_task_5, y = _my_task_3["ids"])
 
 
@@ -98,3 +111,5 @@ def get_gmail_data_async() -> None:
     _my_task_6)
     
 get_gmail_data_async()
+
+# Yesterday's run took 41 sec now 25!!

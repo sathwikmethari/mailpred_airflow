@@ -24,7 +24,7 @@ def get_training_data():
     @task
     def get_payload(input: list[str, list]):
         """Importing libraries/functions/paths."""
-        from utils import wrapper_for_payload        
+        from utils.gm_main_utils import wrapper_for_payload        
         token_path = os.environ.get("token_path_airflow")
                
         out_dict = wrapper_for_payload(input[1], token_path, 15) 
