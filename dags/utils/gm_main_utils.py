@@ -140,12 +140,13 @@ def get_embeddings(df, model_name: str):
 
         sub_cls_embeddings_t = sub_outputs.last_hidden_state[:, 0, :]
         body_cls_embeddings_t = body_outputs.last_hidden_state[:, 0, :]
-        # moves tensor from gpu to cpu
-        embd = torch.cat((sub_cls_embeddings_t, body_cls_embeddings_t), 1).detach().cpu()#.numpy()
+        # removes gradient updation
+        embd = torch.cat((sub_cls_embeddings_t, body_cls_embeddings_t), 1).detach()
         
     del sub_tokenized
     del body_tokenized
     del model
+    del tokenizer
 
     gc.collect()
     torch.cuda.empty_cache()
