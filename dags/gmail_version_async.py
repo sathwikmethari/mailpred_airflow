@@ -1,26 +1,16 @@
 import os
 from tempfile import NamedTemporaryFile
 from airflow.sdk import dag, task, chain
-from datetime import  datetime, timedelta
 
 @dag
-def get_gmail_data_async() -> None:
+def get_gmail_data_async() -> None:        
     @task
-    def get_dates() -> list[tuple]:
-        today = datetime.now().date()
-        ranges = []
-        for i in range(1, 10):
-            after_date = today - timedelta(days=i)
-            before_date = today - timedelta(days=i - 1)
-            ranges.append((after_date.strftime("%Y/%m/%d"), before_date.strftime("%Y/%m/%d")))
-        return ranges
-        
-    @task
-    def get_ids(dates: list[tuple]) -> list[str]:
+    def get_ids() -> list[str]:
         """Importing libraries/functions/paths."""
-        from utils.gm_main_utils import wrapper_for_ids
+        from utils.gm_main_utils import get_dates, wrapper_for_ids        
         token_path = os.environ.get("token_path_airflow")
-       
+        
+        dates = get_dates()
         x = wrapper_for_ids(dates, token_path, 10)
         return x
        
@@ -28,6 +18,7 @@ def get_gmail_data_async() -> None:
     def get_payload(ids_list: list[str]) -> str:
         """Importing libraries/functions/paths."""
         import gzip, msgspec
+        from datetime import  datetime
         from utils.gm_main_utils import wrapper_for_payload        
         token_path = os.environ.get("token_path_airflow")
                
@@ -61,7 +52,7 @@ def get_gmail_data_async() -> None:
     @task
     def get_embeds(parquet_path: str):
         """Importing libraries/functions."""
-        import numpy as np
+        import torch
         import pandas as pd
         from utils.gm_main_utils import get_embeddings
         try:
@@ -74,29 +65,40 @@ def get_gmail_data_async() -> None:
         model_name = "distilbert-base-uncased"
         embd = get_embeddings(df, model_name)
 
-        with NamedTemporaryFile(delete=False, suffix=".npy") as f:
-            np.save(f, embd)
+        with NamedTemporaryFile(delete=False, suffix=".npt") as f:
+            torch.save(embd, f)
             return f.name
 
     @task
     def predict(embd_path: str, ids: list[str]) -> None:
+        """Importing libraries/functions."""
+        import torch
         import numpy as np
+        import xgboost as xgb
+
         try:
-            embd = np.load(embd_path)
+            embd = torch.load(embd_path)
             os.remove(embd_path)
             print(f"Temporary file deleted.")
         except Exception as e:
             print(f"Error deleting file--{e}")
         
-        print(f"EMBDS---{embd[0][0]}")
-        print(f"IDS-----{ids[0]}")
+        model = xgb.Booster()
+        model.load_model("data/XGBmodel.json")
+        dpred = xgb.DMatrix(embd)
+        pred_proba = model.predict(dpred)
+        pred_binary = (pred_proba > 0.35)
 
-    _my_task_1 = get_dates()
-    _my_task_2 = get_ids(_my_task_1)
-    _my_task_3 = get_payload(_my_task_2)           
-    _my_task_4 = decode_payload(zip_path = _my_task_3["path"])
-    _my_task_5 = get_embeds(_my_task_4)
-    _my_task_6 = predict(embd_path = _my_task_5, ids = _my_task_3["ids"])
+        ids = np.array(ids)
+        arr = np.dstack((ids, pred_binary)).squeeze()
+        del_ids = arr[arr[:,1]=="False"][:,0]
+        print(f"example array {del_ids[:5][:]}")
+
+    _my_task_1 = get_ids()
+    _my_task_2 = get_payload(_my_task_1)           
+    _my_task_3 = decode_payload(zip_path = _my_task_2["path"])
+    _my_task_4 = get_embeds(_my_task_3)
+    _my_task_5 = predict(embd_path = _my_task_4, ids = _my_task_2["ids"])
 
 
     chain(
@@ -104,8 +106,7 @@ def get_gmail_data_async() -> None:
     _my_task_2,
     _my_task_3,
     _my_task_4,
-    _my_task_5,
-    _my_task_6)
+    _my_task_5,)
     
 get_gmail_data_async()
 

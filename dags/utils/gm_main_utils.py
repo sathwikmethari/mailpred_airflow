@@ -4,6 +4,16 @@ from collections import defaultdict
 
 
 """ Helper functions for ASYNC DAG """
+
+def get_dates() -> list[tuple]:
+    from datetime import datetime, timedelta
+    today = datetime.now().date()
+    ranges = []
+    for i in range(1, 10):
+        after_date = (today - timedelta(days=i)).strftime("%Y/%m/%d")
+        before_date = (today - timedelta(days=i - 1)).strftime("%Y/%m/%d")
+        ranges.append((after_date, before_date))
+    return ranges
     
 #For creating multiple coroutines/tasks with different arguments
 async def worker(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.Queue) -> None :
@@ -117,6 +127,7 @@ def wrapper_for_payload(id_list: list[str], token_path: str, coro_num: int) -> d
 def get_embeddings(df, model_name: str):
     """Importing libraries."""
     import torch
+    from tempfile import NamedTemporaryFile
     from transformers import AutoModel, AutoTokenizer
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -150,5 +161,6 @@ def get_embeddings(df, model_name: str):
 
     gc.collect()
     torch.cuda.empty_cache()
+
     return embd
 
