@@ -1,7 +1,7 @@
 import torch, optuna
 import pandas as pd
 import xgboost as xgb
-from dags.utils.gm_main_utils import get_embeddings
+from dags.utils.gm_single_utils import get_embeddings
 from sklearn.model_selection import train_test_split 
 from sklearn.metrics import recall_score, confusion_matrix
 from dags.utils.gm_data_utils import decode_zip, extract_headers, decode_body
