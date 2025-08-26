@@ -2,16 +2,16 @@ import time, asyncio, gc
 from functools import partial
 from collections import defaultdict
 
-
 """ Helper functions for ASYNC DAG """
 
-def get_dates() -> list[tuple]:
-    from datetime import datetime, timedelta
-    today = datetime.now().date()
+def get_dates(from_date, num_of_days: int) -> list[tuple]:
+    #from_date is of type datetime.date
+    from datetime import timedelta
+    
     ranges = []
-    for i in range(1, 10):
-        after_date = (today - timedelta(days=i)).strftime("%Y/%m/%d")
-        before_date = (today - timedelta(days=i - 1)).strftime("%Y/%m/%d")
+    for i in range(1, num_of_days+1):
+        after_date = (from_date - timedelta(days=i)).strftime("%Y/%m/%d")
+        before_date = (from_date - timedelta(days=i - 1)).strftime("%Y/%m/%d")
         ranges.append((after_date, before_date))
     return ranges
     
@@ -22,7 +22,7 @@ async def worker(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.
         num = await in_queue.get()
         if num is None:
             in_queue.task_done()
-            print(f"[CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
+            print(f"[S-CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
             break
         res = await function(num)
         await out_queue.put(res)
@@ -34,7 +34,7 @@ def generate_services(num: int, token_path: str) -> list:
     from googleapiclient.discovery import build
     from google.oauth2.credentials import Credentials
 
-    SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']    
+    SCOPES = ['https://www.googleapis.com/auth/gmail.modify']    
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     services = [build('gmail', 'v1', credentials=creds) for _ in range(num)]
     return services
@@ -66,7 +66,7 @@ async def async_get_ids_main(dates: list[tuple], token_path: str, coro_num: int,
     for _ in range(coro_num):
         await in_queue.put(None)
         
-    tasks = [asyncio.create_task(worker(id+1, function, in_queue, out_queue)) for id, function in enumerate(partial_functions)]    
+    tasks = [asyncio.create_task(worker(id, function, in_queue, out_queue)) for id, function in enumerate(partial_functions, start=1)]    
     await asyncio.gather(*tasks)
         
     while not out_queue.empty():
@@ -98,15 +98,15 @@ async def async_get_payload_main(id_list: list[str], token_path: str, coro_num: 
     out_queue = asyncio.Queue()
     out_dict = defaultdict(list)                       
     
-    for date in id_list:
-        await in_queue.put(date)
+    for msg_id in id_list:
+        await in_queue.put(msg_id)
         
     # Add one stop signal per worker. 
     # i,e when the coroutine/worker gets None it breaks the loop of accepting/getting ids.
     for _ in range(coro_num):
         await in_queue.put(None)
         
-    tasks = [asyncio.create_task(worker(id+1, function, in_queue, out_queue)) for id, function in enumerate(partial_functions)]
+    tasks = [asyncio.create_task(worker(id, function, in_queue, out_queue)) for id, function in enumerate(partial_functions, start=1)]
     await asyncio.gather(*tasks)
         
     while not out_queue.empty():
