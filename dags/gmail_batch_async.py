@@ -8,7 +8,7 @@ def gmail_etl_batch_async() -> None:
     def get_ids() -> list[str]:
         """Importing libraries/functions/paths."""
         from datetime import date
-        from utils.gm_main_utils import get_dates, wrapper_for_ids        
+        from utils.gm_single_utils import get_dates, wrapper_for_ids        
         token_path = os.environ.get("token_path_airflow")
         
         from_date, num_of_days = date.today(), 10
@@ -57,7 +57,7 @@ def gmail_etl_batch_async() -> None:
         """Importing libraries/functions."""
         import torch
         import pandas as pd
-        from utils.gm_main_utils import get_embeddings
+        from utils.gm_single_utils import get_embeddings
         try:
             df = pd.read_parquet(parquet_path)
             os.remove(parquet_path)

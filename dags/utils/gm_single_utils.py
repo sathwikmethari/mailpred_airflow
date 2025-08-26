@@ -40,65 +40,38 @@ def generate_services(num: int, token_path: str) -> list:
     return services
 
 """ service is synchronous method, wrapper to make it asynchronous. """
-def driver_for_ids(service, date: tuple):
+def wrapper_for_ids(service, date: tuple):
     return service.users().messages().list(userId='me', q=f"after:{date[0]} before:{date[1]}").execute()
 
 """ Returns list of ids for a given date range. """
 async def async_get_ids(service, date: tuple) -> list[str]:
-    results = await asyncio.to_thread(driver_for_ids, service, date) #for type list of dictionaries(having id, thread id)
+    results = await asyncio.to_thread(wrapper_for_ids, service, date) #for type list of dictionaries(having id, thread id)
     return [dict_["id"]  for dict_ in results.get('messages', [])]
 
-""" Main function to create multiple coroutines,
-    Returns a list with ids. """
-async def async_get_ids_main(dates: list[tuple], token_path: str, coro_num: int, id_list: list = None) -> list[str]:
-    services = generate_services(coro_num, token_path)
-    partial_functions = [partial(async_get_ids, service) for service in services]
-    
-    in_queue = asyncio.Queue()
-    out_queue = asyncio.Queue()
-    if id_list is None: id_list = []
-    
-    for date in dates:
-        await in_queue.put(date)
-
-    # Add one stop signal per worker. 
-    # i,e when the coroutine/worker gets None it breaks the loop of accepting/getting dates.
-    for _ in range(coro_num):
-        await in_queue.put(None)
-        
-    tasks = [asyncio.create_task(worker(id, function, in_queue, out_queue)) for id, function in enumerate(partial_functions, start=1)]    
-    await asyncio.gather(*tasks)
-        
-    while not out_queue.empty():
-        id_list.extend(await out_queue.get())        
-    print(f"Fetched >>>> {len(id_list)} Ids")   
-    return id_list
-
-# Wrapper for main function for airflow.
-def wrapper_for_ids(dates: list[tuple], token_path: str, coro_num: int) -> list[str]:
-    return asyncio.run(async_get_ids_main(dates=dates, token_path=token_path, coro_num=coro_num))
-
-""" Helper functions for getting payload. """
-
 """ service is synchronous method, wrapper to make it asynchronous. """
-def driver_for_payload(service, message_id: str):
+def wrapper_for_payload(service, message_id: str):
     return service.users().messages().get(userId="me", id=message_id, format="full").execute()
 
 """ Returns tuple of id, payload for a given id. """
 async def async_get_payload(service, message_id: str):    
-    results = await asyncio.to_thread(driver_for_payload, service, message_id)
+    results = await asyncio.to_thread(wrapper_for_payload, service, message_id)
     return (message_id, results.get("payload", {}))
 
 """ Main function to create multiple coroutines,
-    Returns a dictionary with ids, payload. """
-async def async_get_payload_main(id_list: list[str], token_path: str, coro_num: int) -> dict:
+    Returns a list of ids or dictionary with ids & payload. """
+
+async def async_get_single_main(func, a_list: list[str] | list[tuple],
+                                token_path: str, coro_num: int, for_ids: bool) -> dict | list:
+    
     services = generate_services(coro_num, token_path)
-    partial_functions = [partial(async_get_payload, service) for service in services]
     in_queue = asyncio.Queue()
     out_queue = asyncio.Queue()
-    out_dict = defaultdict(list)                       
+    if for_ids:
+        id_list = []
+    else:
+        out_dict = defaultdict(list)                       
     
-    for msg_id in id_list:
+    for msg_id in a_list:
         await in_queue.put(msg_id)
         
     # Add one stop signal per worker. 
@@ -106,19 +79,24 @@ async def async_get_payload_main(id_list: list[str], token_path: str, coro_num: 
     for _ in range(coro_num):
         await in_queue.put(None)
         
-    tasks = [asyncio.create_task(worker(id, function, in_queue, out_queue)) for id, function in enumerate(partial_functions, start=1)]
+    tasks = [asyncio.create_task(worker(id, partial(func, service), in_queue, out_queue)) for id, service in enumerate(services, start=1)]
     await asyncio.gather(*tasks)
-        
-    while not out_queue.empty():
-        val = await out_queue.get()
-        out_dict['Id'].append(val[0])
-        out_dict['Payload'].append(val[1])    
-    print("Succesfully fetched Payload")                
-    return out_dict
 
-# Wrapper for main function for airflow
-def wrapper_for_payload(id_list: list[str], token_path: str, coro_num: int) -> dict:
-    return asyncio.run(async_get_payload_main(id_list, token_path, coro_num))
+    if for_ids:
+        while not out_queue.empty():
+            id_list.extend(await out_queue.get())        
+        print(f"Fetched >>>> {len(id_list)} Ids")
+        return id_list
+    else:
+        while not out_queue.empty():
+            val = await out_queue.get()
+            out_dict['Id'].append(val[0])
+            out_dict['Payload'].append(val[1])    
+        print(f"Fetched Payload >>>> {len(out_dict['Id'])}")                
+        return out_dict
+    
+def wrapper_get_single_main(func, a_list: list[str], token_path: str, coro_num: int, for_ids: bool) -> dict | list:
+    return asyncio.run(async_get_single_main(func, a_list, token_path, coro_num, for_ids))
 
 """++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"""
 
@@ -127,7 +105,6 @@ def wrapper_for_payload(id_list: list[str], token_path: str, coro_num: int) -> d
 def get_embeddings(df, model_name: str):
     """Importing libraries."""
     import torch
-    from tempfile import NamedTemporaryFile
     from transformers import AutoModel, AutoTokenizer
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -163,4 +140,3 @@ def get_embeddings(df, model_name: str):
     torch.cuda.empty_cache()
 
     return embd
-

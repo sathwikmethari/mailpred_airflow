@@ -8,12 +8,16 @@ def gmail_etl_single_async() -> None:
     def get_ids() -> list[str]:
         """Importing libraries/functions/paths."""
         from datetime import date
-        from utils.gm_main_utils import get_dates, wrapper_for_ids        
+        from utils.gm_single_utils import get_dates, async_get_ids, wrapper_get_single_main        
         token_path = os.environ.get("token_path_airflow")
         
         from_date, num_of_days = date.today(), 10
         dates = get_dates(from_date, num_of_days)
-        x = wrapper_for_ids(dates, token_path, num_of_days) # 1 coro per day
+        x = wrapper_get_single_main(func = async_get_ids,
+                                    a_list = dates,
+                                    token_path = token_path,
+                                    coro_num = num_of_days,
+                                    for_ids = True) 
         return x
        
     @task(multiple_outputs=True)
@@ -21,10 +25,13 @@ def gmail_etl_single_async() -> None:
         """Importing libraries/functions/paths."""
         import gzip, msgspec
         from datetime import  datetime
-        from utils.gm_main_utils import wrapper_for_payload        
+        from utils.gm_single_utils import async_get_payload, wrapper_get_single_main        
         token_path = os.environ.get("token_path_airflow")
-               
-        out_dict = wrapper_for_payload(ids_list, token_path, 20)
+        out_dict = wrapper_get_single_main(func = async_get_payload,
+                                           a_list = ids_list,
+                                           token_path = token_path,
+                                           coro_num = 20,
+                                           for_ids = False)
 
         print("Starting encoding")
         # Compressing
@@ -51,11 +58,11 @@ def gmail_etl_single_async() -> None:
             return f.name        
                                   
     @task
-    def get_embeds(parquet_path: str):
+    def get_embeds(parquet_path: str) -> str:
         """Importing libraries/functions."""
         import torch
         import pandas as pd
-        from utils.gm_main_utils import get_embeddings
+        from utils.gm_single_utils import get_embeddings
         try:
             df = pd.read_parquet(parquet_path)
             os.remove(parquet_path)
@@ -71,7 +78,7 @@ def gmail_etl_single_async() -> None:
             return f.name
 
     @task
-    def predict(embd_path: str, ids: list[str]) -> None:
+    def predict(embd_path: str, ids: list[str]) -> list[str]:
         """Importing libraries/functions."""
         import torch
         import numpy as np
@@ -93,15 +100,27 @@ def gmail_etl_single_async() -> None:
         ids = np.array(ids)
         ids = np.dstack((ids, pred_binary)).squeeze()
         
-        del_ids = ids[ids[:,1]=="True"][:,0]
-        print(f"example array {del_ids[:5][:]}")
-        return del_ids.tolist()
+        del_ids = ids[ids[:,1]=="False"][:,0]
+        return del_ids[:20].tolist()
+    
+    @task
+    def trash_ids(id_chunks: list[list[str]]) -> None :
+        """Importing libraries/functions."""
+        from utils.gm_batch_utils import wrapper_for_batch_trash_main
+        token_path = os.environ.get("token_path_airflow")
+
+        id_c= [id_chunks[i:i+4] for i in range(0,len(id_chunks),4)]
+        wrapper_for_batch_trash_main(id_c, token_path, 5)
+
+
+
 
     _my_task_1 = get_ids()
     _my_task_2 = get_payload(_my_task_1)           
     _my_task_3 = decode_payload(zip_path = _my_task_2["path"])
     _my_task_4 = get_embeds(_my_task_3)
     _my_task_5 = predict(embd_path = _my_task_4, ids = _my_task_2["ids"])
+    _my_task_6 = trash_ids(_my_task_5)
 
 
     chain(
@@ -109,7 +128,8 @@ def gmail_etl_single_async() -> None:
     _my_task_2,
     _my_task_3,
     _my_task_4,
-    _my_task_5,)
+    _my_task_5,
+    _my_task_6)
     
 gmail_etl_single_async()
 
