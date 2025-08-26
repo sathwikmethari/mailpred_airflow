@@ -30,7 +30,7 @@ def main(creds_path: str, token_path: str, SCOPES) -> None:
       
 if __name__ == "__main__":    
   # If modifying these scopes, delete the file token.json.
-  SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+  SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
   load_dotenv()
   token_path = os.getenv("token_path")
   creds_path = os.getenv("credentials_path")

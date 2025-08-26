@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 
 def authenticate_gmail(credentials_path: str):
     # SCOPES: Gmail read-only
-    SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+    SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
     flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
     creds = flow.run_local_server(port=0)
     service = build('gmail', 'v1', credentials=creds)
