@@ -1,4 +1,4 @@
-import time, asyncio, gc
+import time, asyncio
 from functools import partial
 from collections import defaultdict
 
@@ -15,7 +15,7 @@ def get_dates(from_date, num_of_days: int) -> list[tuple]:
         ranges.append((after_date, before_date))
     return ranges
     
-#For creating multiple coroutines/tasks with different arguments
+# For creating multiple coroutines/tasks with different arguments.
 async def worker(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.Queue) -> None :
     start_time = time.time()
     while True:
@@ -28,7 +28,7 @@ async def worker(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.
         await out_queue.put(res)
         in_queue.task_done()
 
-#Generates service for each coroutine
+# Generates service for each coroutine.
 def generate_services(num: int, token_path: str) -> list:
     """Importing libraries. """
     from googleapiclient.discovery import build
@@ -39,27 +39,26 @@ def generate_services(num: int, token_path: str) -> list:
     services = [build('gmail', 'v1', credentials=creds) for _ in range(num)]
     return services
 
-""" service is synchronous method, wrapper to make it asynchronous. """
+# service is synchronous method, wrapper to make it asynchronous.
 def wrapper_for_ids(service, date: tuple):
     return service.users().messages().list(userId='me', q=f"after:{date[0]} before:{date[1]}").execute()
 
-""" Returns list of ids for a given date range. """
+# Returns list of ids for a given date range.
 async def async_get_ids(service, date: tuple) -> list[str]:
     results = await asyncio.to_thread(wrapper_for_ids, service, date) #for type list of dictionaries(having id, thread id)
     return [dict_["id"]  for dict_ in results.get('messages', [])]
 
-""" service is synchronous method, wrapper to make it asynchronous. """
+# service is synchronous method, wrapper to make it asynchronous.
 def wrapper_for_payload(service, message_id: str):
     return service.users().messages().get(userId="me", id=message_id, format="full").execute()
 
-""" Returns tuple of id, payload for a given id. """
+# Returns tuple of id, payload for a given id.
 async def async_get_payload(service, message_id: str):    
     results = await asyncio.to_thread(wrapper_for_payload, service, message_id)
     return (message_id, results.get("payload", {}))
 
 """ Main function to create multiple coroutines,
     Returns a list of ids or dictionary with ids & payload. """
-
 async def async_get_single_main(func, a_list: list[str] | list[tuple],
                                 token_path: str, coro_num: int, for_ids: bool) -> dict | list:
     
@@ -98,13 +97,12 @@ async def async_get_single_main(func, a_list: list[str] | list[tuple],
 def wrapper_get_single_main(func, a_list: list[str], token_path: str, coro_num: int, for_ids: bool) -> dict | list:
     return asyncio.run(async_get_single_main(func, a_list, token_path, coro_num, for_ids))
 
-"""++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"""
-
+#################################################################################################################################
 """ Helper functions for Training Model """
 
 def get_embeddings(df, model_name: str):
     """Importing libraries."""
-    import torch
+    import torch, gc
     from transformers import AutoModel, AutoTokenizer
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -138,5 +136,5 @@ def get_embeddings(df, model_name: str):
 
     gc.collect()
     torch.cuda.empty_cache()
-
     return embd
+#################################################################################################################################
