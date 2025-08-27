@@ -7,7 +7,6 @@ msgspec
 beautifulsoup4
 lxml
 torch==2.8.0+cu129
-torchvision==0.23.0+cu129
 --extra-index-url https://download.pytorch.org/whl/cu129
 transformers==4.49.0
 xgboost

@@ -1,0 +1,21 @@
+Quota limits:
+Per user: 15,000 units/minute
+
+<=====================================================================================================>
+| API Call                         | Description                                   | Quota Units Used |
+|----------------------------------|-----------------------------------------------|------------------|
+| `users().messages().list`        | List messages in a user's mailbox             | **5**            |
+| `users().messages().get`         | Get a specific message (with/without payload) | **5**            |
+| `users().messages().trash`       | Move a message to Trash                       | **10**           |
+| `users().messages().delete`      | Permanently delete a message                  | **10**           |
+| `users().threads().delete`       | Permanently delete a thread                   | **20**           |
+| `users().messages().batchDelete` | Delete multiple messages in one batch request | **50 per batch** |
+<=====================================================================================================>
+
+1. Get email ids based on Dates(can change this in future).
+2. Get Payload and store it as zip. may have use.
+3. Generate embeddings for preprocessed text data.
+4. Predict unimportant email ids with pre-trained model.
+5. Trash/Delete those ids.
+
+You can trash/delete 750 emails per minute. 750*(5 + 5 + 10).

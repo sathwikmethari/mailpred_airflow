@@ -1,14 +1,14 @@
-import gzip, msgspec, base64
-
 """ Helper functions for zipping/parsing"""
 
 def decode_zip(path: str):
+    """Importing libraries."""
+    import gzip, msgspec
     #Decompress and load
     with gzip.open(path, 'rb') as f:
         decompressed_bytes = f.read()
     return msgspec.msgpack.decode(decompressed_bytes)
 
-""" Extract Subject and From headers. """
+# Extract Subject and From headers.
 def extract_headers(payload) -> str:
     subject = None
     headers = payload.get("headers", [])
@@ -26,9 +26,10 @@ def extract_headers(payload) -> str:
 >>> "multipart/mixed" or "multipart/related" - may include attachments
 The actual message body is in body.data, Base64url encoded. """
 
-""" Decode base64 content. """
+# Decode base64 content.
 def decode_body(payload) -> str:
     """Importing libraries."""
+    import base64
     from bs4 import BeautifulSoup
 
     if "mimeType" in payload and payload["body"].get("data"):
@@ -60,6 +61,7 @@ def decode_body(payload) -> str:
 
     return None
 
+# Clean text data
 def preprocess_email_body(s: str) -> str:
     """Importing libraries."""
     import re
