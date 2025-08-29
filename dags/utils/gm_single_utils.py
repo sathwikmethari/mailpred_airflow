@@ -29,12 +29,15 @@ async def worker(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.
         in_queue.task_done()
 
 # Generates service for each coroutine.
-def generate_services(num: int, token_path: str) -> list:
+def generate_services(num: int, token_path: str, for_del: bool = False) -> list:
     """Importing libraries. """
     from googleapiclient.discovery import build
     from google.oauth2.credentials import Credentials
 
-    SCOPES = ['https://www.googleapis.com/auth/gmail.modify']    
+    SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+    if for_del:
+        SCOPES.append('https://mail.google.com/')
+
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     services = [build('gmail', 'v1', credentials=creds) for _ in range(num)]
     return services
@@ -137,4 +140,20 @@ def get_embeddings(df, model_name: str):
     gc.collect()
     torch.cuda.empty_cache()
     return embd
+
+#################################################################################################################################
+""" To get ids in trash."""
+
+def get_ids_in_trash(token_path: str) ->list[list[str]]:
+    service = generate_services(1, token_path)
+    results = service[0].users().messages().list(userId='me', q="in:trash", maxResults=500).execute()
+    ids_size = results.get("resultSizeEstimate", 0)
+    l = results.get('messages', [])
+    return [[dict_["id"] for dict_ in l[i:i+100]] for i in range(0, ids_size, 100)]
+
+def batch_del_ids_in_trash(ids_list: list[str], token_path: str) -> None:
+    service = generate_services(1, token_path, for_del=True)
+    service[0].users().messages().batchDelete(userId="me", body={"ids": ids_list}).execute()
+    print("Completed Task!!")
+
 #################################################################################################################################

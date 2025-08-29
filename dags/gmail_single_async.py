@@ -1,22 +1,23 @@
 import os
+from datetime import datetime, date
 from tempfile import NamedTemporaryFile
 from airflow.sdk import dag, task, chain
+from airflow.exceptions import AirflowSkipException
 
-@dag
+@dag(start_date=datetime(2025,8,26), schedule="@weekly", catchup=True)
 def gmail_etl_single_async() -> None:        
     @task
     def get_ids() -> list[str]:
         """Importing libraries/functions/paths."""
-        from datetime import date
         from utils.gm_single_utils import get_dates, async_get_ids, wrapper_get_single_main        
         token_path = os.environ.get("token_path_airflow")
         
-        from_date, num_of_days = date.today(), 10
+        from_date, num_of_days = date.today(), 7
         dates = get_dates(from_date, num_of_days)
         ids_list = wrapper_get_single_main(func = async_get_ids,
                                     a_list = dates,
                                     token_path = token_path,
-                                    coro_num = 10,
+                                    coro_num = 7,
                                     for_ids = True) 
         return ids_list
        
@@ -24,14 +25,13 @@ def gmail_etl_single_async() -> None:
     def get_payload(ids_list: list[str]) -> str:
         """Importing libraries/functions/paths."""
         import gzip, msgspec
-        from datetime import  datetime
         from utils.gm_single_utils import async_get_payload, wrapper_get_single_main        
         token_path = os.environ.get("token_path_airflow")
 
         out_dict = wrapper_get_single_main(func = async_get_payload,
                                            a_list = ids_list,
                                            token_path = token_path,
-                                           coro_num = 40,
+                                           coro_num = 25,
                                            for_ids = False)
 
         print("Starting encoding")
@@ -105,11 +105,12 @@ def gmail_etl_single_async() -> None:
         del_ids = ids[ids[:,1]=="False"][:,0]
         num = len(del_ids)
         print(f"Number of Ids to be trashed/deleted >>> {num}")
-        rem = num%25                                  
+        chunk_length = 100
+        rem = num%chunk_length                                  
         if rem == 0:
-            id_chunks = del_ids.reshape(-1, 25).tolist() # if len%25!= 0 raises error, So..
+            id_chunks = del_ids.reshape(-1, chunk_length).tolist() # if len%100!= 0 raises error, So..
         else:
-            id_chunks = del_ids[:-rem].reshape(-1, 25).tolist()
+            id_chunks = del_ids[:-rem].reshape(-1, chunk_length).tolist()
             id_chunks.extend([del_ids[-rem:].tolist()]) 
 
         del embd
@@ -121,20 +122,46 @@ def gmail_etl_single_async() -> None:
         return id_chunks
     
     @task
-    def trash_ids(id_chunks: list[list[str]]) -> None :
+    def trash_ids(ids_list: list[list[str]]) -> None :
         """Importing libraries/functions."""
-        from utils.gm_trash_utils import wrapper_for_batch_trash_main
+        from utils.gm_trash_utils import batch_modify
         token_path = os.environ.get("token_path_airflow")
         
-        wrapper_for_batch_trash_main(id_chunks, token_path,)
+        batch_modify(ids_list, token_path)
+
+
+    @task
+    def get_prev_trash_ids(dag_run=None):
+        """Raise skip if run is not scheduler-triggered"""
+        run_type = dag_run.run_type  # "scheduled", "manual", "backfill"
+        print(run_type)
+        if run_type != "scheduled":
+            raise AirflowSkipException(f"Skipping run_type={run_type}")
+            
+        else:
+            """Importing libraries/functions."""
+            from utils.gm_single_utils import get_ids_in_trash
+            token_path = os.environ.get("token_path_airflow")
+
+            return get_ids_in_trash(token_path)
+
+    @task
+    def perma_del_trash(ids_list: list[str]):
+        """Importing libraries/functions."""
+        from utils.gm_single_utils import batch_del_ids_in_trash
+        token_path = os.environ.get("token_path_airflow")
+
+        batch_del_ids_in_trash(ids_list=ids_list, token_path=token_path,)
+        return 
 
     _my_task_1 = get_ids()
-    _my_task_2 = get_payload(_my_task_1)           
+    _my_task_2 = get_payload(ids_list = _my_task_1)           
     _my_task_3 = decode_payload(zip_path = _my_task_2["path"])
-    _my_task_4 = get_embeds(_my_task_3)
+    _my_task_4 = get_embeds(parquet_path = _my_task_3)
     _my_task_5 = predict(embd_path = _my_task_4, ids = _my_task_2["ids"])
-    _my_task_6 = trash_ids(_my_task_5)
-
+    _my_task_6 = trash_ids.expand(ids_list = _my_task_5)
+    _my_task_7 = get_prev_trash_ids()
+    _my_task_8 = perma_del_trash.expand(ids_list = _my_task_7)
 
     chain(
     _my_task_1,
@@ -142,6 +169,12 @@ def gmail_etl_single_async() -> None:
     _my_task_3,
     _my_task_4,
     _my_task_5,
-    _my_task_6)
+    _my_task_6
+    )
+
+    chain(
+        _my_task_7,
+        _my_task_8,
+    )
     
 gmail_etl_single_async()

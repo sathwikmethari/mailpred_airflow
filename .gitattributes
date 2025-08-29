@@ -1,0 +1,4 @@
+# Force all .py files (including __init__.py) to be recognized as Python
+*.py linguist-language=Python
+*.py linguist-detectable=true
+*.py linguist-generated=false

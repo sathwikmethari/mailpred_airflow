@@ -1,6 +1,11 @@
 import asyncio, time
 from functools import partial
 
+# Notes-1 : Most of the batch trashing is failing and ids are put into single trash queue
+# Notes-2 : Batch modifying the email's label to trash is significantly faster!!
+
+
+
 """ For Trashing. """
 """ Trashes Emails by Single Id. """
 
@@ -18,17 +23,17 @@ async def worker_single_trash(id: int, function, in_queue: asyncio.Queue) -> Non
 
 # service is synchronous method, wrapper to make it asynchronous. """
 def wrapper_single_trash(service, message_id: str):    # Edited for HttpError:  500
+    service.users().messages().trash(userId="me", id=message_id).execute()
+
+# Trashes Emails by id. 
+async def async_single_trash(service, message_id: str):
     for _ in range(2):                                 # Getiing error while deleting last 10 emails. Retry loop added!
         try:
-            service.users().messages().trash(userId="me", id=message_id).execute()
+            await asyncio.to_thread(wrapper_single_trash, service, message_id)
             return
         except Exception as e:
             if e.resp.status == 500:
-                time.sleep(2)
-
-# Trashes Emails by id. 
-async def async_single_trash(service, message_id: str):    
-    await asyncio.to_thread(wrapper_single_trash, service, message_id)
+                asyncio.sleep(1)    
 
 #################################################################################################################################
 
@@ -73,7 +78,7 @@ async def async_batch_trash_main(id_chunks: list[list[str]], token_path: str) ->
     from utils.gm_single_utils import generate_services
     
     coro_num = len(id_chunks)
-    services = generate_services(coro_num, token_path)
+    services = generate_services(coro_num*2, token_path)
     in_queue, fail_queue = asyncio.Queue(), asyncio.Queue()
                 
     for chunk in id_chunks:
@@ -83,18 +88,18 @@ async def async_batch_trash_main(id_chunks: list[list[str]], token_path: str) ->
         await in_queue.put(None)
         
     tasks = [asyncio.create_task(worker_batch_trash(id, partial(async_batch_trash, service), in_queue, fail_queue))
-             for id, service in enumerate(services, start=1)]
+             for id, service in enumerate(services[:coro_num], start=1)]
     await asyncio.gather(*tasks)
 
-    print(f"Number of failed Ids >>>> {fail_queue.qsize()}")
     if not fail_queue.empty():
         while not fail_queue.empty():
             failed_ids = await fail_queue.get()
             for msg_id in failed_ids:
                 await in_queue.put(msg_id)
-        for _ in range(coro_num):
+        for _ in range(coro_num*2):
             await in_queue.put(None)
 
+        print(f"Number of failed Ids >>>> {in_queue.qsize()}")
         print('#'*50)
 
         tasks = [asyncio.create_task(worker_single_trash(id, partial(async_single_trash, service), in_queue))
@@ -107,3 +112,14 @@ def wrapper_for_batch_trash_main(id_chunks: list[list[str]], token_path: str) ->
 #################################################################################################################################
 
 """ Dynamic task mapping. """
+def batch_modify(ids_list: list[str], token_path: str):
+    """Importing libraries/functions."""
+    from utils.gm_single_utils import generate_services
+
+    services = generate_services(token_path=token_path, num=1)
+    body = {"ids": ids_list,
+            "addLabelIds": ["TRASH"],     # move to trash
+            "removeLabelIds": []  }       # optional: remove other labels
+    
+    services[0].users().messages().batchModify(userId="me", body=body).execute()
+
