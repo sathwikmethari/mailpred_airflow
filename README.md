@@ -47,14 +47,11 @@ This project provides a production-ready **Airflow DAG** that:
 - Using Semi-Supervised Learning, model is further trained on larger sample of data.
 - Preprocessed data is fed into the trained model for predicting unimportant emails.
 
-### 🔹 5. Trash
+### 🔹 5. Trash/Deletion
 
-- Used asynchronous python functions for faster and more efficient Trashing.
-
-### 🔹 6. Deletion
-
-- Deletion tasks are only triggered by airflow scheduler.
-- Items in trash are permanently deleted.
+- This is made to be a 2 step process as a fail safe.
+- When the pipeline is manually triggered unimportant emails are sent to trash.
+- When the scheduler triggers(i,e weekly) the pipeline, task to permanently delete emails in trash is executed.
 
 ---
 
@@ -70,3 +67,4 @@ This project provides a production-ready **Airflow DAG** that:
 | Deployment                     | [Docker](https://www.docker.com/)                                                                                                          |
 
 ---
+
