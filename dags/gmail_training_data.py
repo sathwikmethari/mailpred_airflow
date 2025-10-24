@@ -1,5 +1,5 @@
-import os, gzip, msgspec
-from airflow.sdk import dag, task, chain
+import gzip, msgspec
+from airflow.sdk import dag, task, chain, Variable
 from datetime import  datetime
 
 @dag
@@ -9,7 +9,7 @@ def get_training_data():
         """Importing libraries/functions/paths."""
         from googleapiclient.discovery import build
         from google.oauth2.credentials import Credentials
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
         
         SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']    
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
@@ -25,7 +25,7 @@ def get_training_data():
     def get_payload(input: list[str, list]):
         """Importing libraries/functions/paths."""
         from utils.gm_single_utils import wrapper_for_payload        
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
                
         out_dict = wrapper_for_payload(input[1], token_path, 15) 
 

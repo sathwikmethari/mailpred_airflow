@@ -1,32 +1,40 @@
-import os
+import os, logging
 from datetime import datetime, date
 from tempfile import NamedTemporaryFile
-from airflow.sdk import dag, task, chain
+from airflow.sdk import dag, task, chain, Variable
 from airflow.exceptions import AirflowSkipException
+
+# Logger for logging the details
+task_logger = logging.getLogger("airflow.task")
+
 
 @dag(start_date=datetime(2025,8,26), schedule="@weekly", catchup=True)
 def gmail_etl_single_async() -> None:        
     @task
     def get_ids() -> list[str]:
-        """Importing libraries/functions/paths."""
+        """ 
+            Gets the Email ids of last 7 days. 
+        """
         from utils.gm_single_utils import get_dates, async_get_ids, wrapper_get_single_main        
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
         
         from_date, num_of_days = date.today(), 7
         dates = get_dates(from_date, num_of_days)
         ids_list = wrapper_get_single_main(func = async_get_ids,
-                                    a_list = dates,
-                                    token_path = token_path,
-                                    coro_num = 7,
-                                    for_ids = True) 
+                                           a_list = dates,
+                                           token_path = token_path,
+                                           coro_num = 7,
+                                           for_ids = True) 
         return ids_list
        
     @task(multiple_outputs=True)
     def get_payload(ids_list: list[str]) -> str:
-        """Importing libraries/functions/paths."""
+        """
+            Gets the Email Payload of last 7 days.
+        """
         import gzip, msgspec
         from utils.gm_single_utils import async_get_payload, wrapper_get_single_main        
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
 
         out_dict = wrapper_get_single_main(func = async_get_payload,
                                            a_list = ids_list,
@@ -34,7 +42,7 @@ def gmail_etl_single_async() -> None:
                                            coro_num = 25,
                                            for_ids = False)
 
-        print("Starting encoding")
+        task_logger.info("Starting encoding")
         # Compressing
         bytes = msgspec.msgpack.encode(out_dict)        
         zip_path = f"/opt/airflow/data/{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.json.gz"
@@ -44,7 +52,9 @@ def gmail_etl_single_async() -> None:
     
     @task
     def decode_payload(zip_path: str) -> str:
-        """Importing libraries/functions."""
+        """
+            Decodes the payload to text.
+        """
         import pandas as pd
         from utils.gm_data_utils import decode_zip, extract_headers, decode_body
 
@@ -60,16 +70,18 @@ def gmail_etl_single_async() -> None:
                                   
     @task
     def get_embeds(parquet_path: str) -> str:
-        """Importing libraries/functions."""
+        """
+            Generates the embeddings of the cleaned text.
+        """
         import torch
         import pandas as pd
         from utils.gm_single_utils import get_embeddings
         try:
             df = pd.read_parquet(parquet_path)       # Reading and deleting temp file.
             os.remove(parquet_path)
-            print(f"Temporary file deleted.")
+            task_logger.info(f"Temporary file deleted.")
         except Exception as e:
-            print(f"Error deleting file--{e}")
+            task_logger.info(f"Error deleting file--{e}")
 
         model_name = "distilbert-base-uncased"
         embd = get_embeddings(df, model_name)     # Generates Embeddings of Subject and Body text data.
@@ -80,7 +92,9 @@ def gmail_etl_single_async() -> None:
 
     @task
     def predict(embd_path: str, ids: list[str]) -> list[str]:
-        """Importing libraries/functions."""
+        """
+            Predict the unimportant email ids.
+        """
         import torch, gc
         import numpy as np
         import xgboost as xgb
@@ -88,9 +102,9 @@ def gmail_etl_single_async() -> None:
         try:
             embd = torch.load(embd_path)
             os.remove(embd_path)
-            print(f"Temporary file deleted.")
+            task_logger.info(f"Temporary file deleted.")
         except Exception as e:
-            print(f"Error deleting file--{e}")
+            task_logger.error(f"Error deleting file--{e}")
         
         model = xgb.Booster()
         model.load_model("/opt/airflow/data/XGBmodel.json")
@@ -104,8 +118,8 @@ def gmail_etl_single_async() -> None:
         
         del_ids = ids[ids[:,1]=="False"][:,0]
         num = len(del_ids)
-        print(f"Number of Ids to be trashed/deleted >>> {num}")
-        chunk_length = 100
+        task_logger.info(f"Number of Ids to be trashed >>> {num}")
+        chunk_length = 50
         rem = num%chunk_length                                  
         if rem == 0:
             id_chunks = del_ids.reshape(-1, chunk_length).tolist() # if len%100!= 0 raises error, So..
@@ -123,33 +137,40 @@ def gmail_etl_single_async() -> None:
     
     @task
     def trash_ids(ids_list: list[list[str]]) -> None :
-        """Importing libraries/functions."""
+        """
+            Move the umimp ids to the trash.
+        """
         from utils.gm_trash_utils import batch_modify
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
         
         batch_modify(ids_list, token_path)
 
 
     @task
     def get_prev_trash_ids(dag_run=None):
-        """Raise skip if run is not scheduler-triggered"""
+        """
+            Get the ids the emails already in trash.
+            Raise skip if run is not scheduler-triggered
+        """
         run_type = dag_run.run_type  # "scheduled", "manual", "backfill"
-        print(run_type)
+        task_logger.info(run_type)
         if run_type != "scheduled":
             raise AirflowSkipException(f"Skipping run_type={run_type}")
             
         else:
             """Importing libraries/functions."""
             from utils.gm_single_utils import get_ids_in_trash
-            token_path = os.environ.get("token_path_airflow")
+            token_path = Variable.get("TOKEN_PATH")
 
             return get_ids_in_trash(token_path)
 
     @task
     def perma_del_trash(ids_list: list[str]):
-        """Importing libraries/functions."""
+        """
+            Permanently delete the ids in trash.
+        """
         from utils.gm_single_utils import batch_del_ids_in_trash
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
 
         batch_del_ids_in_trash(ids_list=ids_list, token_path=token_path,)
         return 

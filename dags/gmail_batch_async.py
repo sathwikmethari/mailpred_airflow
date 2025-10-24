@@ -1,6 +1,6 @@
 import os
 from tempfile import NamedTemporaryFile
-from airflow.sdk import dag, task, chain
+from airflow.sdk import dag, task, chain, Variable
 
 @dag
 def gmail_etl_batch_async() -> None:        
@@ -9,7 +9,7 @@ def gmail_etl_batch_async() -> None:
         """Importing libraries/functions/paths."""
         from datetime import date
         from utils.gm_single_utils import get_dates, wrapper_for_ids        
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
         
         from_date, num_of_days = date.today(), 10
         dates = get_dates(from_date, num_of_days)
@@ -22,7 +22,7 @@ def gmail_etl_batch_async() -> None:
         import gzip, msgspec
         from datetime import  datetime
         from utils.gm_batch_utils import wrapper_for_batched_payload        
-        token_path = os.environ.get("token_path_airflow")
+        token_path = Variable.get("TOKEN_PATH")
 
         batch_size =50
         id_chunks = [ids_list[i:i+batch_size] for i in range(0, len(ids_list), batch_size)]      
