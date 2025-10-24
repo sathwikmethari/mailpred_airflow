@@ -1,6 +1,10 @@
 import time, asyncio
 from functools import partial
 from collections import defaultdict
+import logging
+
+task_logger = logging.getLogger("airflow.task")
+
 
 """ Helper functions for ASYNC DAG """
 
@@ -22,7 +26,7 @@ async def worker(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.
         num = await in_queue.get()
         if num is None:
             in_queue.task_done()
-            print(f"[S-CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
+            task_logger.info(f"[S-CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
             break
         res = await function(num)
         await out_queue.put(res)
@@ -39,7 +43,7 @@ def generate_services(num: int, token_path: str, for_del: bool = False) -> list:
         SCOPES.append('https://mail.google.com/')
 
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-    services = [build('gmail', 'v1', credentials=creds) for _ in range(num)]
+    services = [build('gmail', 'v1', credentials=creds, cache_discovery=False) for _ in range(num)]
     return services
 
 # service is synchronous method, wrapper to make it asynchronous.
@@ -87,14 +91,14 @@ async def async_get_single_main(func, a_list: list[str] | list[tuple],
     if for_ids:
         while not out_queue.empty():
             id_list.extend(await out_queue.get())        
-        print(f"Fetched >>>> {len(id_list)} Ids")
+        task_logger.info(f"Fetched >>>> {len(id_list)} Ids")
         return id_list
     else:
         while not out_queue.empty():
             val = await out_queue.get()
             out_dict['Id'].append(val[0])
             out_dict['Payload'].append(val[1])    
-        print(f"Fetched Payload >>>> {len(out_dict['Id'])}")                
+        task_logger.info(f"Fetched Payload >>>> {len(out_dict['Id'])}")                
         return out_dict
     
 def wrapper_get_single_main(func, a_list: list[str], token_path: str, coro_num: int, for_ids: bool) -> dict | list:
@@ -154,6 +158,6 @@ def get_ids_in_trash(token_path: str) ->list[list[str]]:
 def batch_del_ids_in_trash(ids_list: list[str], token_path: str) -> None:
     service = generate_services(1, token_path, for_del=True)
     service[0].users().messages().batchDelete(userId="me", body={"ids": ids_list}).execute()
-    print("Completed Task!!")
+    task_logger.info("Completed Task!!")
 
 #################################################################################################################################
