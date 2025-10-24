@@ -11,3 +11,5 @@ torch==2.8.0+cu129
 transformers==4.49.0
 xgboost
 cupy-cuda12x
+apache-airflow-providers-apache-kafka
+aiokafka

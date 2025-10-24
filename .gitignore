@@ -39,10 +39,13 @@ include/secrets/
 .vscode/
 
 #Files
-docker-compose.yaml
+docker-compose.yml
 custom-build.dockerfile
 send_dummies.py
 dummies.py
+dags/kafka_email_dag.py
+dags/kafka_test_dag.py
+dags/utils/kafka_helpers.py
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
