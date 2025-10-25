@@ -13,3 +13,4 @@ xgboost
 cupy-cuda12x
 apache-airflow-providers-apache-kafka
 aiokafka
+redis
