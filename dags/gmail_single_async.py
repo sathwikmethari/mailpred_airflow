@@ -1,46 +1,40 @@
-import os, logging
+import os, asyncio
 from datetime import datetime, date
 from tempfile import NamedTemporaryFile
 from airflow.sdk import dag, task, chain, Variable
-from airflow.exceptions import AirflowSkipException
+from airflow.exceptions import DownstreamTasksSkipped
+from airflow.utils.types import DagRunType
+from utils.get_logger import make_logger
 
-# Logger for logging the details
-task_logger = logging.getLogger("airflow.task")
-
+task_logger = make_logger()
 
 @dag(start_date=datetime(2025,8,26), schedule="@weekly", catchup=True)
-def gmail_etl_single_async() -> None:        
+def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None:        
     @task
-    def get_ids() -> list[str]:
+    def get_ids(token_path: str) -> list[str]:
         """ 
             Gets the Email ids of last 7 days. 
         """
-        from utils.gm_single_utils import get_dates, async_get_ids, wrapper_get_single_main        
-        token_path = Variable.get("TOKEN_PATH")
+        from utils.gm_single_utils import get_dates, async_get_ids_main       
         
         from_date, num_of_days = date.today(), 7
         dates = get_dates(from_date, num_of_days)
-        ids_list = wrapper_get_single_main(func = async_get_ids,
-                                           a_list = dates,
-                                           token_path = token_path,
-                                           coro_num = 7,
-                                           for_ids = True) 
+        ids_list = asyncio.run(async_get_ids_main(date_list = dates,
+                                                  token_path = token_path,
+                                                  coro_num = 7))
         return ids_list
        
     @task(multiple_outputs=True)
-    def get_payload(ids_list: list[str]) -> str:
+    def get_payload(ids_list: list[str], token_path: str) -> str:
         """
             Gets the Email Payload of last 7 days.
         """
         import gzip, msgspec
-        from utils.gm_single_utils import async_get_payload, wrapper_get_single_main        
-        token_path = Variable.get("TOKEN_PATH")
+        from utils.gm_single_utils import async_get_paylaod_main     
 
-        out_dict = wrapper_get_single_main(func = async_get_payload,
-                                           a_list = ids_list,
-                                           token_path = token_path,
-                                           coro_num = 25,
-                                           for_ids = False)
+        out_dict = asyncio.run(async_get_paylaod_main(ids_list = ids_list,
+                                                      token_path = token_path,
+                                                      coro_num = 25,))
 
         task_logger.info("Starting encoding")
         # Compressing
@@ -136,53 +130,45 @@ def gmail_etl_single_async() -> None:
         return id_chunks
     
     @task
-    def trash_ids(ids_list: list[list[str]]) -> None :
+    def trash_ids(token_path: str, ids_list: list[list[str]]) -> None :
         """
             Move the umimp ids to the trash.
         """
         from utils.gm_trash_utils import batch_modify
-        token_path = Variable.get("TOKEN_PATH")
-        
         batch_modify(ids_list, token_path)
 
-
     @task
-    def get_prev_trash_ids(dag_run=None):
+    def get_prev_trash_ids(token_path: str, dag_run=None):
         """
             Get the ids the emails already in trash.
             Raise skip if run is not scheduler-triggered
         """
-        run_type = dag_run.run_type  # "scheduled", "manual", "backfill"
-        task_logger.info(run_type)
-        if run_type != "scheduled":
-            raise AirflowSkipException(f"Skipping run_type={run_type}")
-            
+        run_type = dag_run.run_type 
+        if run_type == DagRunType.MANUAL:
+            task_logger.info(f"Skipping Tasks >> run_type - {run_type}")            
+            raise DownstreamTasksSkipped(tasks = ["perma_del_trash"]) # skips downstream task
         else:
-            """Importing libraries/functions."""
             from utils.gm_single_utils import get_ids_in_trash
-            token_path = Variable.get("TOKEN_PATH")
-
             return get_ids_in_trash(token_path)
 
     @task
-    def perma_del_trash(ids_list: list[str]):
+    def perma_del_trash(token_path: str, ids_list: list[str]):
         """
             Permanently delete the ids in trash.
         """
         from utils.gm_single_utils import batch_del_ids_in_trash
-        token_path = Variable.get("TOKEN_PATH")
 
         batch_del_ids_in_trash(ids_list=ids_list, token_path=token_path,)
         return 
 
-    _my_task_1 = get_ids()
-    _my_task_2 = get_payload(ids_list = _my_task_1)           
+    _my_task_1 = get_ids(token_path=token_path)
+    _my_task_2 = get_payload(ids_list = _my_task_1, token_path=token_path)           
     _my_task_3 = decode_payload(zip_path = _my_task_2["path"])
     _my_task_4 = get_embeds(parquet_path = _my_task_3)
     _my_task_5 = predict(embd_path = _my_task_4, ids = _my_task_2["ids"])
-    _my_task_6 = trash_ids.expand(ids_list = _my_task_5)
-    _my_task_7 = get_prev_trash_ids()
-    _my_task_8 = perma_del_trash.expand(ids_list = _my_task_7)
+    _my_task_6 = trash_ids.partial(token_path = token_path).expand(ids_list = _my_task_5) 
+    _my_task_7 = get_prev_trash_ids(token_path = token_path)
+    _my_task_8 = perma_del_trash.partial(token_path = token_path).expand(ids_list = _my_task_7)
 
     chain(
     _my_task_1,
