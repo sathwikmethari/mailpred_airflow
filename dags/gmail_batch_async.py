@@ -8,7 +8,7 @@ def gmail_etl_batch_async() -> None:
     def get_ids() -> list[str]:
         """Importing libraries/functions/paths."""
         from datetime import date
-        from utils.gm_single_utils import get_dates, wrapper_for_ids        
+        from dags.utils.main_utils import get_dates, wrapper_for_ids        
         token_path = Variable.get("TOKEN_PATH")
         
         from_date, num_of_days = date.today(), 10
@@ -21,7 +21,7 @@ def gmail_etl_batch_async() -> None:
         """Importing libraries/functions/paths."""
         import gzip, msgspec
         from datetime import  datetime
-        from utils.gm_batch_utils import wrapper_for_batched_payload        
+        from dags.utils.batch_utils import wrapper_for_batched_payload        
         token_path = Variable.get("TOKEN_PATH")
 
         batch_size =50
@@ -40,7 +40,7 @@ def gmail_etl_batch_async() -> None:
     def decode_payload(zip_path: str) -> str:
         """Importing libraries/functions."""
         import pandas as pd
-        from utils.gm_data_utils import decode_zip, extract_headers, decode_body
+        from dags.utils.payload_utils import decode_zip, extract_headers, decode_body
 
         unzipped_data = decode_zip(zip_path)
         df = pd.DataFrame(unzipped_data)[["Payload"]] #only takes payload key data from dict
@@ -57,7 +57,7 @@ def gmail_etl_batch_async() -> None:
         """Importing libraries/functions."""
         import torch
         import pandas as pd
-        from utils.gm_single_utils import get_embeddings
+        from dags.utils.main_utils import get_embeddings
         try:
             df = pd.read_parquet(parquet_path)
             os.remove(parquet_path)

@@ -23,12 +23,12 @@ def driver_for_batch(batch):
     batch.execute()
 
 async def worker_for_batched(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.Queue, fail_queue: asyncio.Queue) -> None :
-    start_time = time.time()
+    start_time = time.perf_counter()
     while True:
         num = await in_queue.get()
         if num is None:
             in_queue.task_done()
-            print(f"[B-CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
+            print(f"[B-CORO - {id}] >> Time taken: {time.perf_counter() - start_time:.4f} sec.")
             break
         res = await function(num)
         await out_queue.put((res.req_id, res.payload))
@@ -50,7 +50,7 @@ async def async_get_batched_payload(service, ids_list: list[str]):
 """ Main function to create multiple Batched coroutines. Returns a dictionary with ids, payload. """
 async def async_get_batched_main(id_chunks: list[list[str]], token_path: str, coro_num: int) -> dict:
     """Importing Functions."""
-    from utils.gm_single_utils import worker, generate_services, async_get_payload
+    from dags.utils.main_utils import worker, generate_services, async_get_payload
 
     services = generate_services(coro_num, token_path)
     in_queue, out_queue = asyncio.Queue(), asyncio.Queue()

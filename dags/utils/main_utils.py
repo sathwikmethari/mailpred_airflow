@@ -2,6 +2,8 @@ import time, asyncio
 from functools import partial
 from collections import defaultdict
 from .get_logger import make_logger
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
 task_logger = make_logger()
 
@@ -26,12 +28,12 @@ async def worker(id: int, function, in_queue: asyncio.Queue, out_queue: asyncio.
         Worker function that loops till in_queue is empty/recieves None.
         For creating multiple coroutines/tasks with different arguments.
     """
-    start_time = time.time()
+    start_time = time.perf_counter()
     while True:
         num = await in_queue.get()
         if num is None:
             in_queue.task_done()
-            task_logger.info(f"[S-CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
+            task_logger.info(f"[S-CORO - {id}] >> Time taken: {time.perf_counter() - start_time:.4f} sec.")
             break
         res = await function(num)
         await out_queue.put(res)
@@ -43,8 +45,6 @@ def generate_services(num: int, token_path: str, for_del: bool = False) -> list:
         Generates services to be used for api calls.
         Generates service for each coroutine.
     """
-    from googleapiclient.discovery import build
-    from google.oauth2.credentials import Credentials
 
     SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
     if for_del:
@@ -131,52 +131,22 @@ async def async_get_paylaod_main(ids_list: list[str],
     return out_dict
 
 #################################################################################################################################
-""" Helper functions for Training Model """
+""" To send ids in trash."""
 
-def get_embeddings(df, model_name: str):
+def batch_modify(ids_list: list[str], token_path: str):
+    """ 
+        Send emails to trash using Dynamic task mapping.
     """
-        Generates embeddings of cleaned corpus for ml classification.
-    """
-    import torch, gc
-    from transformers import AutoModel, AutoTokenizer
+    services = generate_services(token_path=token_path, num=1)
+    body = {"ids": ids_list,
+            "addLabelIds": ["TRASH"],     # move to trash
+            "removeLabelIds": []  }       # optional: remove other labels
     
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name)
-        
-    sub_list = df.loc[:, "Subject"].astype(str).tolist() # turns object to string and returns list of strs
-    body_list = df.loc[:, "Body"].astype(str).tolist()
-    
-    """ Tokenizer takes input list[str], list[list[str]], not just str!!! """
-    sub_tokenized = tokenizer(sub_list, truncation=True, max_length=30, padding=True, return_tensors="pt")
-    body_tokenized = tokenizer(body_list, truncation=True, max_length=512, padding=True, return_tensors="pt")
-    
-    if torch.cuda.is_available():
-        model.cuda()
-        sub_tokenized = {k: v.cuda() for k, v in sub_tokenized.items()}
-        body_tokenized = {k: v.cuda() for k, v in body_tokenized.items()}
-
-    with torch.no_grad():
-        sub_outputs = model(**sub_tokenized)
-        body_outputs = model(**body_tokenized)
-
-        sub_cls_embeddings_t = sub_outputs.last_hidden_state[:, 0, :]
-        body_cls_embeddings_t = body_outputs.last_hidden_state[:, 0, :]
-        # removes gradient updation
-        embd = torch.cat((sub_cls_embeddings_t, body_cls_embeddings_t), 1).detach()
-        
-    del sub_tokenized
-    del body_tokenized
-    del model
-    del tokenizer
-
-    gc.collect()
-    torch.cuda.empty_cache()
-    return embd
-
+    services[0].users().messages().batchModify(userId="me", body=body).execute()
 #################################################################################################################################
 """ To get ids in trash."""
 
-def get_ids_in_trash(token_path: str) ->list[list[str]]:
+def get_ids_in_trash(token_path: str, chunk_size: int=100) ->list[list[str], ]:
     """
         Gets ids in gmail trash to be permenantly deleted.
     """
@@ -185,7 +155,8 @@ def get_ids_in_trash(token_path: str) ->list[list[str]]:
     results = service[0].users().messages().list(userId='me', q="in:trash", maxResults=500).execute() # default maxres is 100
     ids_size = results.get("resultSizeEstimate", 0)
     l = results.get('messages', [])
-    return [[dict_["id"] for dict_ in l[i:i+100]] for i in range(0, ids_size, 100)]
+    task_logger.info(f"The number of emails in trash >> {ids_size}")
+    return [[dict_["id"] for dict_ in l[i:i+chunk_size]] for i in range(0, ids_size, chunk_size)]
 
 def batch_del_ids_in_trash(ids_list: list[str], token_path: str) -> None:
     """
@@ -195,5 +166,48 @@ def batch_del_ids_in_trash(ids_list: list[str], token_path: str) -> None:
     service = generate_services(1, token_path, for_del=True)
     service[0].users().messages().batchDelete(userId="me", body={"ids": ids_list}).execute()
     task_logger.info("Completed Task!!")
+
+#################################################################################################################################
+"""  For Redis version, To send ids in trash. """
+
+def modify_trash_wrapper(service, ids_list: list[str]):
+    service.users().messages().batchModify(userId="me", body = {"ids": ids_list,
+                                                                "addLabelIds": ["TRASH"],   # move to trash
+                                                                "removeLabelIds": [] }      # optional: remove other labels
+                                                                ).execute()
+
+async def modify_trash(id_, service, ids_list: list[str]):
+    start_time = time.perf_counter()
+    await asyncio.to_thread(modify_trash_wrapper, service, ids_list)
+    task_logger.info(f"[Worker - {id_}] >> Time taken: {time.perf_counter() - start_time:.4f} sec.")
+
+async def modify_trash_main(token_path: str, chunks: list[list[str]]):
+    """ 
+        Send emails to trash using modify call.
+    """
+    n = len(chunks)
+    services = generate_services(token_path=token_path, num=n)
+    tasks = [asyncio.create_task(modify_trash(id_, service, ids_list)) for id_, service, ids_list in zip(range(1,n+1), services, chunks)]
+    await asyncio.gather(*tasks)
+
+#################################################################################################################################
+"""  For Redis version, To get ids in trash. """
+
+def batch_perma_del_wrapper(service, ids_list: list[str]):
+    service.users().messages().batchDelete(userId="me", body={"ids": ids_list}).execute()
+
+async def batch_perma_del(id_, service, ids_list: list[str]):
+    start_time = time.perf_counter()
+    await asyncio.to_thread(batch_perma_del_wrapper, service, ids_list)
+    task_logger.info(f"[Worker - {id_}] >> Time taken: {time.perf_counter() - start_time:.4f} sec.")
+
+async def batch_perma_del_main(token_path: str, chunks: list[list[str]]):
+    """ 
+        Permanently deletes emails with batchDelete.
+    """
+    n = len(chunks)
+    services = generate_services(n, token_path, for_del=True)
+    tasks = [asyncio.create_task(batch_perma_del(id_, service, ids_list)) for id_, service, ids_list in zip(range(1,n+1), services, chunks)]
+    await asyncio.gather(*tasks)
 
 #################################################################################################################################

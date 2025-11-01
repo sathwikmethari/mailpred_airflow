@@ -31,7 +31,7 @@ def get_imap_data():
         """Importing libraries."""
         import os
         import pandas as pd
-        from utils.utils import fetch_batch       
+        from dags.utils.imap_utils import fetch_batch       
         
         """Getting email and password."""
         email = os.environ.get("user")

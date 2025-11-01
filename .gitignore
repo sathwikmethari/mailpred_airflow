@@ -37,6 +37,7 @@ plugins/
 data/
 include/secrets/
 .vscode/
+transformers/
 
 #Files
 docker-compose.yml
@@ -47,6 +48,8 @@ dags/kafka_email_dag.py
 dags/kafka_test_dag.py
 dags/utils/kafka_helpers.py
 dags/test_redis.py
+testing_asyncpg.py
+testing_redis.py
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

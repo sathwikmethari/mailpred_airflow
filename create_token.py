@@ -6,8 +6,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 #https://developers.google.com/workspace/gmail/api/quickstart/python
 def main(creds_path: str, token_path: str, SCOPES) -> None:
-  """Shows basic usage of the Gmail API.
-  Lists the user's Gmail labels.
+  """
+      Generates token to make gmail api calls.
   """
   creds = None
   # The file token.json stores the user's access and refresh tokens, and is

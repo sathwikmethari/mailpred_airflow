@@ -5,18 +5,17 @@ from functools import partial
 # Notes-2 : Batch modifying the email's label to trash is significantly faster!!
 
 
-
 """ For Trashing. """
 """ Trashes Emails by Single Id. """
 
 #For creating multiple coroutines/tasks with different arguments.
 async def worker_single_trash(id: int, function, in_queue: asyncio.Queue) -> None :
-    start_time = time.time()
+    start_time = time.perf_counter()
     while True:
         num = await in_queue.get()
         if num is None:
             in_queue.task_done()
-            print(f"[S-CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
+            print(f"[S-CORO - {id}] >> Time taken: {time.perf_counter() - start_time:.4f} sec.")
             break
         await function(num)
         in_queue.task_done()
@@ -39,12 +38,12 @@ async def async_single_trash(service, message_id: str):
 
 # Trashes Emails by Batches.
 async def worker_batch_trash(id: int, function, in_queue: asyncio.Queue, fail_queue: asyncio.Queue) -> None :
-    start_time = time.time()
+    start_time = time.perf_counter()
     while True:
         num = await in_queue.get()
         if num is None:
             in_queue.task_done()
-            print(f"[B-CORO - {id}] >> Time taken: {time.time() - start_time:.4f} sec.")
+            print(f"[B-CORO - {id}] >> Time taken: {time.perf_counter() - start_time:.4f} sec.")
             break
         res = await function(num)
         if res.failed != []:
@@ -75,7 +74,7 @@ async def async_batch_trash(service, ids_list: list[str]):
 """ Main function to create multiple Batched coroutines. """
 async def async_batch_trash_main(id_chunks: list[list[str]], token_path: str) -> dict:
     #"""Importing Functions."""
-    from utils.gm_single_utils import generate_services
+    from dags.utils.main_utils import generate_services
     
     coro_num = len(id_chunks)
     services = generate_services(coro_num*2, token_path)
@@ -110,16 +109,3 @@ def wrapper_for_batch_trash_main(id_chunks: list[list[str]], token_path: str) ->
     return asyncio.run(async_batch_trash_main(id_chunks, token_path))
 
 #################################################################################################################################
-
-""" Dynamic task mapping. """
-def batch_modify(ids_list: list[str], token_path: str):
-    """Importing libraries/functions."""
-    from utils.gm_single_utils import generate_services
-
-    services = generate_services(token_path=token_path, num=1)
-    body = {"ids": ids_list,
-            "addLabelIds": ["TRASH"],     # move to trash
-            "removeLabelIds": []  }       # optional: remove other labels
-    
-    services[0].users().messages().batchModify(userId="me", body=body).execute()
-

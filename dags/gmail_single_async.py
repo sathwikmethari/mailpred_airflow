@@ -4,6 +4,8 @@ from tempfile import NamedTemporaryFile
 from airflow.sdk import dag, task, chain, Variable
 from airflow.exceptions import DownstreamTasksSkipped
 from airflow.utils.types import DagRunType
+from utils.main_utils import *
+from utils.encode_utils import *
 from utils.get_logger import make_logger
 
 task_logger = make_logger()
@@ -15,7 +17,6 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
         """ 
             Gets the Email ids of last 7 days. 
         """
-        from utils.gm_single_utils import get_dates, async_get_ids_main       
         
         from_date, num_of_days = date.today(), 7
         dates = get_dates(from_date, num_of_days)
@@ -29,35 +30,33 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
         """
             Gets the Email Payload of last 7 days.
         """
-        import gzip, msgspec
-        from utils.gm_single_utils import async_get_paylaod_main     
+        import gzip
 
         out_dict = asyncio.run(async_get_paylaod_main(ids_list = ids_list,
                                                       token_path = token_path,
                                                       coro_num = 25,))
 
         task_logger.info("Starting encoding")
-        # Compressing
-        bytes = msgspec.msgpack.encode(out_dict)        
+        # Serializing
+        bytes_ = Serialize(out_dict)        
         zip_path = f"/opt/airflow/data/{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.json.gz"
         with gzip.open(zip_path, 'wb') as f:
-            f.write(bytes)            
+            f.write(bytes_)            
         return {"path":zip_path, "ids":out_dict["Id"]}   
     
     @task
     def decode_payload(zip_path: str) -> str:
         """
-            Decodes the payload to text.
+            Decodes the payload to text and sends them to be saved and to generate embeddings.
         """
         import pandas as pd
-        from utils.gm_data_utils import decode_zip, extract_headers, decode_body
+        from utils.payload_utils import decode_gmail_payload
 
         unzipped_data = decode_zip(zip_path)
-        df = pd.DataFrame(unzipped_data)[["Payload"]]           #only takes Payload key data from dict
-        df["Subject"] = df["Payload"].apply(extract_headers)    # Gets subject data from Payload
-        df["Body"] = df["Payload"].apply(decode_body)           # Gets Body data from Payload
-        df = df.drop(["Payload"], axis=1)
-        
+        df = pd.DataFrame(unzipped_data)
+        # df = pd.DataFrame(unzipped_data)[["Payload"]]           #only takes Payload key data from dict
+        df[["Date", "Subject", "Body"]] = df["Payload"].apply(lambda row: pd.Series(decode_gmail_payload(row)))
+        df = df.drop(["Id", "Date", "Payload"], axis=1)      
         with NamedTemporaryFile(delete=False, suffix=".parquet.gzip") as f:  # Saving as temp file
             df.to_parquet(f)
             return f.name        
@@ -69,7 +68,7 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
         """
         import torch
         import pandas as pd
-        from utils.gm_single_utils import get_embeddings
+        from utils.embedding_utils import get_embeddings
         try:
             df = pd.read_parquet(parquet_path)       # Reading and deleting temp file.
             os.remove(parquet_path)
@@ -134,7 +133,6 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
         """
             Move the umimp ids to the trash.
         """
-        from utils.gm_trash_utils import batch_modify
         batch_modify(ids_list, token_path)
 
     @task
@@ -148,7 +146,6 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
             task_logger.info(f"Skipping Tasks >> run_type - {run_type}")            
             raise DownstreamTasksSkipped(tasks = ["perma_del_trash"]) # skips downstream task
         else:
-            from utils.gm_single_utils import get_ids_in_trash
             return get_ids_in_trash(token_path)
 
     @task
@@ -156,7 +153,6 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
         """
             Permanently delete the ids in trash.
         """
-        from utils.gm_single_utils import batch_del_ids_in_trash
 
         batch_del_ids_in_trash(ids_list=ids_list, token_path=token_path,)
         return 
