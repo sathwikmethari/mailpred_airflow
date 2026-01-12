@@ -5,8 +5,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import recall_score, confusion_matrix
 from dags.utils.encode_utils import decode_zip
 from dags.utils.embedding_utils import get_embeddings
-from dags.utils.payload_utils import decode_payload
-MODEL_NAME = "distilbert-base-uncased"
+from dags.utils.payload_utils import decode_gmail_payload
+# MODEL_NAME = "distilbert-base-uncased"
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 print("PyTorch version:", torch.__version__)
 print("CUDA available:", torch.cuda.is_available())
@@ -14,7 +15,7 @@ print(f"Using AutoTokenizer >> {MODEL_NAME}\n")
 
 path_1 = "data/imp_22-08-2025-03-23.json.gz"
 path_2 = "data/unimp_22-08-2025-03-23.json.gz"
-path_3 = "data/15-08-2025-10-41.json.gz"
+path_3 = "data/30-10-2025-09-29-32.json.gz"
 
 decompressed_data_1 = decode_zip(path_1)
 decompressed_data_2 = decode_zip(path_2)
@@ -24,16 +25,18 @@ df_imp =pd.DataFrame(decompressed_data_1)[["Payload"]]
 df_unimp =pd.DataFrame(decompressed_data_2)[["Payload"]]
 df_unlb =pd.DataFrame(decompressed_data_3)[["Payload"]]
 
-df_imp[["Date", "Subject", "Body"]] = df_imp["Payload"].apply(lambda row: pd.Series(decode_payload(row)))
+df_imp[["Date", "Subject", "Body"]] = df_imp["Payload"].apply(lambda row: pd.Series(decode_gmail_payload(row)))
 df_imp["Important"] = 1
 df_imp = df_imp.drop(["Date", "Payload"], axis=1)
 
-df_unimp[["Date", "Subject", "Body"]] = df_unimp["Payload"].apply(lambda row: pd.Series(decode_payload(row)))
+df_unimp[["Date", "Subject", "Body"]] = df_unimp["Payload"].apply(lambda row: pd.Series(decode_gmail_payload(row)))
 df_unimp["Important"] = 0
 df_unimp = df_unimp.drop(["Date", "Payload"], axis=1)
 
-df_unlb[["Date", "Subject", "Body"]] = df_unlb["Payload"].apply(lambda row: pd.Series(decode_payload(row)))
+df_unlb[["Date", "Subject", "Body"]] = df_unlb["Payload"].apply(lambda row: pd.Series(decode_gmail_payload(row)))
 df_unlb = df_unlb.drop(["Date", "Payload"], axis=1)
+df_unlb_dict = df_unlb.to_dict(orient="list")
+
 
 train = pd.concat([df_imp, df_unimp])
 
@@ -41,7 +44,8 @@ train = pd.concat([df_imp, df_unimp])
 train["Body"] = train["Body"].fillna(train["Subject"]*10)
 
 print("Generating embeddings of labelled data.")
-X = get_embeddings(train, MODEL_NAME)
+train_dict = train.to_dict(orient="list")
+X = get_embeddings(train_dict, MODEL_NAME)
 print("Finished generating embeddings.\n")
 y = torch.from_numpy(train.loc[:,"Important"].values).cuda()
 
@@ -98,7 +102,7 @@ print("Finished training.\n")
 
 # Embeddings of Unlabelled data
 print("Generating embeddings of unlabelled data.")
-unlb_embeddings = get_embeddings(df_unlb, MODEL_NAME)
+unlb_embeddings = get_embeddings(df_unlb_dict, MODEL_NAME)
 print("Finished generating embeddings.\n")
 
 # Semi-Supervised Learning with best param model
@@ -160,4 +164,4 @@ print(f"Recall Score >> {recall_score(y_test_np, y_pred_binary)}")
 print(f"Confusion Matrix >>\n{confusion_matrix(y_test_np, y_pred_binary)}")
 
 print("Saving Model")
-final_model.save_model("data/model.json")
+final_model.save_model("data/model_MiniLM-L6.json")

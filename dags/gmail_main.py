@@ -13,7 +13,7 @@ POST_Q = "POSTGRES_Q"
 ID_Q  = "ID_Q"
 PREV_Q = "PREV_Q"
 
-@dag(start_date=datetime(2025,8,26), schedule="@weekly", catchup=True)
+@dag(start_date=datetime(2025,8,26), schedule="@weekly", catchup=False)
 def gmail_redis_intermediate(token_path: str = Variable.get("TOKEN_PATH"), redis_url: str = Variable.get("REDIS_URI")) -> None:        
     @task
     def get_ids(token_path: str, redis_url: str) -> None:
@@ -24,11 +24,15 @@ def gmail_redis_intermediate(token_path: str = Variable.get("TOKEN_PATH"), redis
         
         from_date, num_of_days = date.today(), 7
         dates = get_dates(from_date, num_of_days)
-        ids_list = asyncio.run(async_get_ids_main(date_list = dates,
+        ids_list, id_length = asyncio.run(async_get_ids_main(date_list = dates,
                                                   token_path = token_path,
                                                   coro_num = 7))
+        if id_length==0:
+            task_logger.info(f"Skipping Tasks >> No ids found.")              
+            raise DownstreamTasksSkipped(tasks = ["get_payload", "get_embeds"]) # skips downstream task
+        
         ids_list_enc = Serialize(ids_list)
-        # Flushes any prexisting elements.
+        # Flushes any prexisting elements. 
         asyncio.run(flush_queue(redis_url, MAIN_Q))
         asyncio.run(push_data(redis_url, ids_list_enc, MAIN_Q))
 
@@ -111,56 +115,30 @@ def gmail_redis_intermediate(token_path: str = Variable.get("TOKEN_PATH"), redis
             task_logger.info("Successfully inserted.")
         except Exception as e:
             task_logger.error(e)  
-                                  
-    @task
-    def get_embeds(redis_url: str) -> None:
-        """
-            Generates the embeddings of the cleaned text.
-        """
-        import torch, io
-        import pandas as pd
-        from utils.embedding_utils import get_embeddings
 
+    @task
+    def calling_pred(api_url:str, redis_url: str) -> None:
+        """
+            Calls the prediction API to get unimportant email ids.
+        """
+        import requests
+        import numpy as np  
+        
+        encoded_ids: bytes = asyncio.run(pop_data(redis_url, ID_Q))        
+        ids: list[str] = Deserialize(encoded_ids)
+        
         encoded_dict: bytes = asyncio.run(pop_data(redis_url, MAIN_Q))
         decoded_dict: dict = Deserialize(encoded_dict)
-        df = pd.DataFrame(decoded_dict)
 
-        model_name = "distilbert-base-uncased"
-        embd = get_embeddings(df, model_name)     # Generates Embeddings of Subject and Body text data.
-        
-        buffer = io.BytesIO()
-        torch.save(embd, buffer)
-        embd: bytes = buffer.getvalue()
-        asyncio.run(push_data(redis_url, embd, MAIN_Q))
-
-    @task
-    def predict(redis_url: str) -> list[str]:
-        """
-            Predict the unimportant email ids.
-        """
-        import torch, gc, io
-        import numpy as np
-        import xgboost as xgb
-
-        encoded_ids: bytes = asyncio.run(pop_data(redis_url, ID_Q))
-        encoded_embs: bytes = asyncio.run(pop_data(redis_url, MAIN_Q))
-        
-        ids: list[str] = Deserialize(encoded_ids)
-        buffer = io.BytesIO(encoded_embs)
-        # Deserialize tensor
-        embd = torch.load(buffer)
-        
-        model = xgb.Booster()
-        model.load_model("/opt/airflow/data/XGBmodel.json")
-        dpred = xgb.DMatrix(embd)
-        pred_proba = model.predict(dpred)
-        thresh = 0.35
-        pred_binary = (pred_proba > thresh)  # If above threshold it is considered as Imp email!
-                                             # Decrease thresh value to minimize False Negatives.
+        pred_binary: list[int] = requests.post(api_url,
+                                               json={
+                                                    "input": decoded_dict
+                                                    }).json()
+        pred_binary = np.array(pred_binary)
         ids = np.array(ids)
         ids = np.dstack((ids, pred_binary)).squeeze()
         
-        del_ids = ids[ids[:,1]=="False"][:,0]
+        del_ids = ids[ids[:,1]=='0'][:,0]
         num = len(del_ids)
         task_logger.info(f"Number of Ids to be trashed >>> {num}")
         chunk_length = 50
@@ -170,15 +148,11 @@ def gmail_redis_intermediate(token_path: str = Variable.get("TOKEN_PATH"), redis
         else:
             id_chunks = del_ids[:-rem].reshape(-1, chunk_length).tolist()
             id_chunks.extend([del_ids[-rem:].tolist()]) 
-
-        del embd
-        del dpred
-        del model
-        gc.collect()
-        torch.cuda.empty_cache()    
+   
 
         id_chunks: bytes = Serialize(id_chunks)
-        asyncio.run(push_data(redis_url, id_chunks, MAIN_Q))
+        asyncio.run(push_data(redis_url, id_chunks, MAIN_Q))  
+
     
     @task
     def trash_ids(token_path: str, redis_url: str) -> None :
@@ -223,11 +197,10 @@ def gmail_redis_intermediate(token_path: str = Variable.get("TOKEN_PATH"), redis
     _my_task_2 = get_payload(token_path=token_path, redis_url=redis_url)
     _my_task_3 = decode_payload(redis_url=redis_url)
     _my_task_4 = write_to_PG(redis_url=redis_url)
-    _my_task_5 = get_embeds(redis_url=redis_url)
-    _my_task_6 = predict(redis_url=redis_url)
-    _my_task_7 = trash_ids(token_path=token_path, redis_url=redis_url)
-    _my_task_8 = get_prev_trash_ids(token_path=token_path, redis_url=redis_url)
-    _my_task_9 = perma_del_trash(token_path = token_path, redis_url=redis_url)
+    _my_task_5 = calling_pred(api_url=Variable.get("PRED_API_URL"), redis_url=redis_url)
+    _my_task_6 = trash_ids(token_path=token_path, redis_url=redis_url)
+    _my_task_7 = get_prev_trash_ids(token_path=token_path, redis_url=redis_url)
+    _my_task_8 = perma_del_trash(token_path = token_path, redis_url=redis_url)
     
     chain(
         _my_task_1,
@@ -235,7 +208,6 @@ def gmail_redis_intermediate(token_path: str = Variable.get("TOKEN_PATH"), redis
         _my_task_3,
         _my_task_5,
         _my_task_6,
-        _my_task_7,
     )
     chain(
         _my_task_1, 
@@ -246,8 +218,8 @@ def gmail_redis_intermediate(token_path: str = Variable.get("TOKEN_PATH"), redis
         _my_task_4,
     )
     chain(
+        _my_task_7,
         _my_task_8,
-        _my_task_9,
     )
 
 gmail_redis_intermediate()

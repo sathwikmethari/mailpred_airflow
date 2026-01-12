@@ -50,6 +50,7 @@ dags/utils/kafka_helpers.py
 dags/test_redis.py
 testing_asyncpg.py
 testing_redis.py
+test_api.ipynb
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

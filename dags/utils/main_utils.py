@@ -65,7 +65,7 @@ async def async_get_ids(service, date: tuple) -> list[str]:
 
 async def async_get_ids_main(date_list: list[tuple],
                              token_path: str,
-                             coro_num: int) -> list:
+                             coro_num: int) -> tuple[list, str]:
     """
         Generates email ids for the given date range.
     """
@@ -86,9 +86,11 @@ async def async_get_ids_main(date_list: list[tuple],
     await asyncio.gather(*tasks)
 
     while not out_queue.empty():
-        id_list.extend(await out_queue.get())        
-    task_logger.info(f"Fetched >>>> {len(id_list)} Ids")
-    return id_list
+        id_list.extend(await out_queue.get())
+    id_length = len(id_list)
+    task_logger.info(f"Fetched >>>> {id_length} Ids")
+    task_logger.info(id_list[:5])
+    return id_list, id_length
 
 #################################################################################################################################
 

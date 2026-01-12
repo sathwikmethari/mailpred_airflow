@@ -10,7 +10,7 @@ from utils.get_logger import make_logger
 
 task_logger = make_logger()
 
-@dag(start_date=datetime(2025,8,26), schedule="@weekly", catchup=True)
+@dag(start_date=datetime(2025,8,26), schedule="@weekly", catchup=False)
 def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None:        
     @task
     def get_ids(token_path: str) -> list[str]:
@@ -77,7 +77,8 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
             task_logger.info(f"Error deleting file--{e}")
 
         model_name = "distilbert-base-uncased"
-        embd = get_embeddings(df, model_name)     # Generates Embeddings of Subject and Body text data.
+        df_dict = df.to_dict(orient="list")
+        embd = get_embeddings(df_dict, model_name)     # Generates Embeddings of Subject and Body text data.
 
         with NamedTemporaryFile(delete=False, suffix=".npt") as f: # Saving as tempfile
             torch.save(embd, f)
@@ -162,9 +163,9 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
     _my_task_3 = decode_payload(zip_path = _my_task_2["path"])
     _my_task_4 = get_embeds(parquet_path = _my_task_3)
     _my_task_5 = predict(embd_path = _my_task_4, ids = _my_task_2["ids"])
-    _my_task_6 = trash_ids.partial(token_path = token_path).expand(ids_list = _my_task_5) 
-    _my_task_7 = get_prev_trash_ids(token_path = token_path)
-    _my_task_8 = perma_del_trash.partial(token_path = token_path).expand(ids_list = _my_task_7)
+    # _my_task_6 = trash_ids.partial(token_path = token_path).expand(ids_list = _my_task_5) 
+    # _my_task_7 = get_prev_trash_ids(token_path = token_path)
+    # _my_task_8 = perma_del_trash.partial(token_path = token_path).expand(ids_list = _my_task_7)
 
     chain(
     _my_task_1,
@@ -172,12 +173,12 @@ def gmail_etl_single_async(token_path: str = Variable.get("TOKEN_PATH")) -> None
     _my_task_3,
     _my_task_4,
     _my_task_5,
-    _my_task_6
+    # _my_task_6
     )
 
-    chain(
-        _my_task_7,
-        _my_task_8,
-    )
+    # chain(
+    #     _my_task_7,
+    #     _my_task_8,
+    # )
     
 gmail_etl_single_async()

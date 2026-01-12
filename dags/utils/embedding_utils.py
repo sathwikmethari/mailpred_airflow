@@ -1,21 +1,25 @@
 """ Helper functions for Training Model """
 import torch, gc
+import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 
-def get_embeddings(df, model_name: str):
+def mean_pooling(model_output, attention_mask, device):
+    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float().to(device=device) #.float equivalent to .to(torch.float32)
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+def get_embeddings(text_dic: dict[str, list[str]], model_name: str):
     """
         Generates embeddings of cleaned corpus for ml classification.
     """
    
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
-        
-    sub_list = df.loc[:, "Subject"].astype(str).tolist() # turns object to string and returns list of strs
-    body_list = df.loc[:, "Body"].astype(str).tolist()
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")       
     
     """ Tokenizer takes input list[str], list[list[str]], not just str!!! """
-    sub_tokenized = tokenizer(sub_list, truncation=True, max_length=30, padding=True, return_tensors="pt")
-    body_tokenized = tokenizer(body_list, truncation=True, max_length=512, padding=True, return_tensors="pt")
+    sub_tokenized = tokenizer(text_dic["Subject"], truncation=True, max_length=20, padding=True, return_tensors="pt")
+    body_tokenized = tokenizer(text_dic["Body"], truncation=True, max_length=512, padding=True, return_tensors="pt")
     
     if torch.cuda.is_available():
         model.cuda()
@@ -25,9 +29,13 @@ def get_embeddings(df, model_name: str):
     with torch.no_grad():
         sub_outputs = model(**sub_tokenized)
         body_outputs = model(**body_tokenized)
+    
+        sub_cls_embeddings_t = mean_pooling(sub_outputs, sub_tokenized['attention_mask'], device = device)
+        body_cls_embeddings_t = mean_pooling(body_outputs, body_tokenized['attention_mask'], device = device)
+        
+        sub_cls_embeddings_t = F.normalize(sub_cls_embeddings_t, p=2, dim=1)
+        body_cls_embeddings_t = F.normalize(body_cls_embeddings_t, p=2, dim=1)
 
-        sub_cls_embeddings_t = sub_outputs.last_hidden_state[:, 0, :]
-        body_cls_embeddings_t = body_outputs.last_hidden_state[:, 0, :]
         # removes gradient updation
         embd = torch.cat((sub_cls_embeddings_t, body_cls_embeddings_t), 1).detach()
         

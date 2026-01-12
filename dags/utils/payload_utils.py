@@ -1,6 +1,7 @@
 """ Helper functions for zipping/parsing"""
 import re, base64
 from email.utils import parsedate_to_datetime
+from bs4 import BeautifulSoup
 
 """ mimeType may be:
 >>> "text/plain" - plain text only
@@ -11,7 +12,6 @@ The actual message body is in body.data, Base64url encoded. """
 
 def decode_gmail_payload(payload) -> str:
     """Importing libraries."""
-    from bs4 import BeautifulSoup
     
     body = ""
     mime_type = payload.get("mimeType", "")
@@ -19,7 +19,7 @@ def decode_gmail_payload(payload) -> str:
     if data:
         body = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
         if mime_type == "text/plain":
-            body = preprocess_email_body(body), 
+            body = preprocess_email_body(body)
         elif mime_type == "text/html":
             soup = BeautifulSoup(body, "lxml")
             for tag in soup(["script", "style", "header", "footer", "nav", "aside"]):
@@ -27,21 +27,21 @@ def decode_gmail_payload(payload) -> str:
             body_text = soup.get_text()
             body = preprocess_email_body(body_text)
 
-    elif "parts" in payload:
-        html_body = None
-        plain_body = None
-        for part in payload["parts"]:
-            _, _, part_body = decode_gmail_payload(part)
-            if not part_body:
-                continue
+        elif "parts" in payload:
+            html_body = None
+            plain_body = None
+            for part in payload["parts"]:
+                _, _, part_body = decode_gmail_payload(part)
+                if not part_body:
+                    continue
 
-            part_type = part.get("mimeType", "")
-            if "html" in part_type:
-                html_body = part_body
-            elif "plain" in part_type:
-                plain_body = part_body
+                part_type = part.get("mimeType", "")
+                if "html" in part_type:
+                    html_body = part_body
+                elif "plain" in part_type:
+                    plain_body = part_body
 
-        body = html_body or plain_body or ""  
+            body = html_body or plain_body or ""  
     
     recieved_date = None
     subject = None
@@ -59,7 +59,7 @@ def decode_gmail_payload(payload) -> str:
     if subject is None or subject=="":
         subject = "Email has no Subject"
     if body is None or body=="":
-        body = (subject+ " ")*5
+        body = f"Email has a subject '{subject}' and no body."
 
     return recieved_date, subject, body
 
