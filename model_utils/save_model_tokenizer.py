@@ -1,9 +1,7 @@
 import bentoml
+import xgboost as xgb
 from transformers import AutoTokenizer, AutoModel
 
-"""
-    Dont forget to change the embed input to list[str], list[str] in the future!!!
-"""
 
 def save_model_in_store(model_name: str):
     """
@@ -25,7 +23,20 @@ def save_model_in_store(model_name: str):
     print(f"Saved to BentoML-store: {saved_model.tag}")
     print(f"Saved to BentoML-store: {saved_tokenizer.tag}")
 
+def save_xgb_classifier(model_name: str, model_path) -> None:
+    """
+        For saving classifier model into BentoML model store.
+    """
 
-if __name__=="__main__":    
+    cls = xgb.Booster()
+    cls.load_model(model_path)
+    bentoml.xgboost.save_model(model_name, cls)
+    print(f"Classifier saved to BentoML-store")
+
+if __name__=="__main__":
     model_name = "sentence-transformers/all-MiniLM-L6-v2"
+    cls_path = "../data/model_MiniLM-L6.json"
+    cls_version = "xgb-model-v3"
+    
     save_model_in_store(model_name)
+    save_xgb_classifier(cls_version, cls_path)
